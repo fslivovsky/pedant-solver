@@ -1,0 +1,1 @@
+add_library (interrupt STATIC interrupt.h interrupt.cc)

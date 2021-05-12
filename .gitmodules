@@ -1,0 +1,15 @@
+[submodule "cadical_ipasir/cadical"]
+	path = cadical_ipasir/cadical
+	url = https://github.com/arminbiere/cadical.git
+[submodule "minisat"]
+	path = minisat
+	url = https://github.com/perebor/minisat
+[submodule "avy"]
+	path = avy
+	url = https://github.com/perebor/avy
+[submodule "abc"]
+	path = abc
+	url = https://bitbucket.org/arieg/abc-ufo
+[submodule "interpolatingsolver"]
+	path = interpolatingsolver
+	url = https://github.com/perebor/interpolatingsolver
