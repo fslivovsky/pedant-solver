@@ -18,7 +18,7 @@ sudo apt install cmake
 sudo apt install g++
 sudo apt install libboost-all-dev
 sudo apt install libmlpack-dev
-git clone -b portcpp --single-branch https://github.com/perebor/pedant.git
+git clone https://github.com/perebor/pedant-solver
 cd pedant
 git submodule init
 git submodule update
