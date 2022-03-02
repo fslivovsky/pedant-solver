@@ -4,8 +4,12 @@
 #include <vector>
 
 #include "solvertypes.h"
-#include "cadical.h"
+// #include "cadical.h"
+// #include "glucose-ipasir.h"
+#include <memory>
+#include "satsolver.h"
 #include "logging.h"
+#include "configuration.h"
 
 namespace pedant {
 
@@ -14,7 +18,7 @@ class UnateChecker {
  public:
   UnateChecker( std::vector<Clause>& matrix,
                 const std::vector<int>& existential_variables,
-                int& last_used_variable);
+                int& last_used_variable, const Configuration& config);
 
 
   std::vector<Clause> findUnates(const std::vector<int>& variables_to_consider, std::vector<int>& arbiter_assignment);
@@ -25,7 +29,8 @@ class UnateChecker {
   const std::vector<Clause>& getUnateClauses() {return unate_clauses;}
 
  private:
-  CadicalSolver unate_solver;
+  // CadicalSolver unate_solver;
+  std::shared_ptr<SatSolver> unate_solver;
 
   //in the following vectors elements with the same index are associated to the same variable
   std::vector<int> existential_variables;
@@ -39,6 +44,7 @@ class UnateChecker {
   std::vector<Clause> unate_clauses;
 
   int& max_variable;
+  const Configuration& config;
 
 
   std::vector<int> arbiter_variables;
@@ -55,7 +61,7 @@ inline void UnateChecker::addArbiterVariable(int var) {
 
 inline void UnateChecker::addClause(Clause& clause) {
   DLOG(trace) << "Adding clause to unate solver: " << clause << std::endl;
-  unate_solver.addClause(clause);
+  unate_solver->addClause(clause);
   // arbiter_clauses.push_back(clause);
 }
 

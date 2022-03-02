@@ -7,233 +7,240 @@
 
 namespace pedant {
 
+ModelLogger::ModelLogger(const std::vector<int>& existential_variables, 
+    const std::vector<int>& universal_variables, 
+    const DefaultValueContainer& default_values, const Configuration& config) :
+    existential_variables(existential_variables), universal_variables(universal_variables),
+    default_values(default_values), config(config) {
+}
+
+
 void ModelLogger::init(int last_variable_in_matrix) {
-  last_variable_index_in_matrix=last_variable_in_matrix;
-  unused_variable=last_variable_index_in_matrix+1;
+  max_variable_in_matrix=last_variable_in_matrix;
+  unused_variable=max_variable_in_matrix+1;
   for (int i=0;i<existential_variables.size();i++) {
     int existential=existential_variables[i];
     indices.insert(std::make_pair(existential,i));
   }
-  for (int e:existential_variables) {
-    int default_val=ModelLogger::initial_default_polarity?e:-e;
-    default_values.push_back(default_val);
-  }
-  aiger_generator.init(last_variable_index_in_matrix);
-}
+  int nof_existentials = existential_variables.size();
+  positive_forcing_clauses.resize(nof_existentials);
+  negative_forcing_clauses.resize(nof_existentials);
 
-void ModelLogger::addDefinition(int variable,const std::vector<Clause>& def, const Def_Circuit& circuit_def) {
-  int index=getIndex(variable);
-  definitions[index].clear();
-  definitions[index].insert(definitions[index].end(),def.begin(),def.end());
-  conditional_definitions[index].clear();
-  positive_forcing_clauses[index].clear();
-  negative_forcing_clauses[index].clear();
-  positive_default_function_clauses[index].clear();
-  negative_default_function_clauses[index].clear();
-
-  conditional_definitions_circuits[index].clear();
-  definitions_circuits[index]=circuit_def;
-}
-
-void ModelLogger::addDefinition(int variable,const std::vector<int>& conflict, const std::vector<Clause>& definition, const Def_Circuit& circuit_def) {
-  if (conflict.empty()) {
-    addDefinition(variable,definition,circuit_def);
-    return;
-  }
-  int index=getIndex(variable);
-  auto x=std::make_tuple(std::vector<int>(conflict),std::vector<Clause>(definition));
-  conditional_definitions[index].push_back(x);
-  auto y=std::make_tuple(std::vector<int>(conflict),Def_Circuit(circuit_def));
-  conditional_definitions_circuits[index].push_back(y);
+  definitions_circuit.resize(nof_existentials);
+  definitions_cnf.resize(nof_existentials);
+  conditions.resize(nof_existentials);
+  conditional_definitions_circuit.resize(nof_existentials);
+  conditional_definitions_cnf.resize(nof_existentials);
 }
 
 void ModelLogger::addForcingClause(const Clause& forcing_clause) {
   int forced_literal = forcing_clause.back();
-  int variable=abs(forced_literal);
-  int index=getIndex(variable);
+  int variable = var(forced_literal);
+  size_t idx = getIndex(variable);
+  Clause fc (forcing_clause.begin(),forcing_clause.end()-1);
   if (forced_literal>0) {
-    positive_forcing_clauses[index].push_back(Clause(forcing_clause.begin(),forcing_clause.end()-1));
+    positive_forcing_clauses[idx].push_back(fc);
   } else {
-    negative_forcing_clauses[index].push_back(Clause(forcing_clause.begin(),forcing_clause.end()-1));
-  }
+    negative_forcing_clauses[idx].push_back(fc);
+  }  
 }
 
-void ModelLogger::setDefaultFunction(int existential,const std::vector<Clause>& clauses) {
-  int index=getIndex(existential);
-  positive_default_function_clauses[index].clear();
-  negative_default_function_clauses[index].clear();
-  for (const auto& clause:clauses) {
-    Clause c(clause.begin()+1,clause.end());
-    assert(abs(clause.front())==existential);
-    if (clause.front()>0) {
-      positive_default_function_clauses[index].push_back(c);
-    } else {
-      negative_default_function_clauses[index].push_back(c);
-    }
+
+void ModelLogger::addDefinition(int variable, const std::vector<Clause>& def_clauses, const DefCircuit& def_circuit) {
+  size_t idx = getIndex(variable);
+  definitions_circuit[idx] = def_circuit;
+  definitions_cnf[idx] = def_clauses;
+}
+
+void ModelLogger::addConditionalDefinition(int variable, const std::vector<int>& condition, 
+    const std::vector<Clause>& def_clauses, const DefCircuit& def_circuit) {
+  if (condition.size()==0) {
+    addDefinition(variable,def_clauses,def_circuit);
+    return;
   }
+  size_t idx = getIndex(variable);
+  conditions[idx].push_back(std::vector<int>(condition));
+  conditional_definitions_circuit[idx].push_back(DefCircuit(def_circuit));
+  conditional_definitions_cnf[idx].push_back(std::vector<Clause>(def_clauses));
 }
 
 void ModelLogger::writeModelAsCNFToFile(const std::string& file_name,const std::vector<int>& arbiter_assignment) {
-  std::stringstream strs;
   std::vector<int> arbs(arbiter_assignment);
   std::sort(arbs.begin(),arbs.end());
+  std::stringstream strs;
   int nof_clauses=0;
-  for (int e:existential_variables) {
-    int i=getIndex(e);
+  auto default_clause_map = default_values.getCertificate();
+  for (auto [e,idx] : indices) {
     strs<<"c Model for variable "<<std::to_string(e)<<"."<<std::endl;
-    if (definitions[i].empty()) {
-      if (!writeClausalEncodingConditionalDefinitions(strs,i,arbs,nof_clauses)) {
-        if (use_default_value[i]) {
-          writeForcingClausesAndDefaultValue(strs,i,arbs,nof_clauses);
-        } else {
-          writeForcingClausesAndDefaultFunctions(strs,i,arbs,nof_clauses);
-        }
-      }  
+    //If we have a definition it suffices to only consider the definition
+    auto def =definitions_cnf[idx];
+    if (def.empty()) { 
+      //If true on of the conditional definitions fires. In this case we have the model for the variable
+      if (!writeClausalEncodingConditionalDefinitions(idx,arbs,nof_clauses,strs)) {
+        auto& default_clauses = default_clause_map.at(e);
+        processForcingClauses(idx,arbs,default_clauses,nof_clauses,strs);
+      } 
     } else {
-      writeFormulaToStream(definitions[i],strs,arbs,nof_clauses);
+      writeFormulaToStream(def,arbs,nof_clauses,strs);
     }
   }
   std::ofstream output(file_name);
   output<<"p cnf "<<std::to_string(unused_variable-1)<<" "<<std::to_string(nof_clauses)<<std::endl;
-  output<<strs.str();
+  output<<strs.rdbuf();
   output.close();
+  unused_variable=max_variable_in_matrix+1;
+  renaming_auxiliaries.clear();
 }
 
-bool ModelLogger::isConflictEntailed(const std::vector<int>& conflict,const std::vector<int>& arbiter_assignment) {
-  for (int l:conflict) {
-    if (!std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),l)) {
-      return false;
-    }
+void ModelLogger::writeModelAsAIGToFile(const std::string& file_name,const std::vector<int>& arbiter_assignment, bool binary_AIGER) {
+  AIGERBuilder aiger_generator(indices,max_variable_in_matrix,existential_variables,universal_variables);
+  std::vector<int> arbs(arbiter_assignment);
+  std::sort(arbs.begin(),arbs.end());
+  auto default_clause_map = default_values.getCertificate();
+  if (config.restrictModel) {
+    aiger_generator.writeToFile(file_name,binary_AIGER, config.restrictModelTo, definitions_circuit,conditions,conditional_definitions_circuit,positive_forcing_clauses,negative_forcing_clauses,default_clause_map, arbs);
+  } else {
+    aiger_generator.writeToFile(file_name,binary_AIGER, definitions_circuit,conditions,conditional_definitions_circuit,positive_forcing_clauses,negative_forcing_clauses,default_clause_map, arbs);
   }
-  return true;
+  
 }
 
-bool ModelLogger::writeClausalEncodingConditionalDefinitions(std::ostream& out,int index,const std::vector<int>& arbiter_assignment,int& nof_clauses) {
-  for (auto& pair:conditional_definitions[index]) {
-    if (isConflictEntailed(std::get<0>(pair),arbiter_assignment)) {
-      positive_forcing_clauses[index].clear();
-      negative_forcing_clauses[index].clear();
-      positive_default_function_clauses[index].clear();
-      negative_default_function_clauses[index].clear();
-      writeFormulaToStream(std::get<1>(pair),out,arbiter_assignment,nof_clauses);
-      return true;
+
+
+//write clausal representation of the model
+
+bool ModelLogger::writeClausalEncodingConditionalDefinitions(size_t variable_index, 
+    const std::vector<int>& arbiter_assignment, int& nof_clauses, std::ostream& out) {
+
+  for (size_t i=0; i<conditions[variable_index].size(); i++) {
+    auto& condition = conditions[variable_index][i];
+    auto& def = conditional_definitions_cnf[variable_index][i];
+    if (isConditionEntailed(condition,arbiter_assignment)) {
+      writeFormulaToStream(def,arbiter_assignment,nof_clauses,out);
+      return true; 
     }
   }
   return false;
 }
 
-
-std::pair<bool,Clause> isSatisfiedByArbiterAssignment(const Clause& clause,const std::vector<int>& arbiter_assignment) {
-  Clause result;
-  for (int l:clause) {
-    if (std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),l)) {
-      return std::make_pair(false,result);
+void ModelLogger::writeForcingClauses(const std::vector<Clause>& clauses, 
+      const std::vector<int>& arbiter_assignment, std::vector<int>& active_clauses, 
+      int& nof_clauses, std::ostream& out) {
+  for (const auto& clause : clauses) {
+    Clause cl (clause);
+    bool clause_satisfied = applyAssignment(cl,arbiter_assignment);
+    if (!clause_satisfied) {
+      auto active = writeClauseActive(cl,nof_clauses,out);
+      active_clauses.push_back(active);
     }
-    if (!std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),-l)) {
-      result.push_back(l);
+  }
+}
+
+void ModelLogger::writeClausalEncodingDefaults(std::vector<Clause>& default_clauses, 
+    int default_activator, int& nof_clauses, std::ostream& out) {
+  assert(default_clauses.size()>1);
+  for (auto& cl : default_clauses) {
+    cl.push_back(default_activator);
+    writeClauseToStream(cl,out);
+    nof_clauses++;
+    cl.pop_back();
+  }
+}
+
+/**
+ * If default_clauses is empty (config.use_default_values == false) we can directly print the forcing clauses
+ * If default_clauses has only a single element, then we know that no tree was built (if a tree would have been built
+ * then we would have at least two clauses) thus we have a default constant. This allows us to ignore some of the forcing clauses.
+ * E.g. if the default constant is positive, we do not have to consider the positive forcing clauses -- we have to assign
+ * true to the existential variable iff no negative forcing clause fires.
+ * If default clauses has more than one element, then a tree was built. 
+ * 
+ **/
+void ModelLogger::processForcingClauses(size_t variable_index, const std::vector<int>& arbiter_assignment, 
+    std::vector<Clause>& default_clauses, int& nof_clauses, std::ostream& out) {
+  auto e = existential_variables[variable_index]; 
+  if (default_clauses.empty()) {
+    writeFormulaToStream(positive_forcing_clauses[variable_index], arbiter_assignment, nof_clauses, out);
+    writeFormulaToStream(negative_forcing_clauses[variable_index], arbiter_assignment, nof_clauses, out);
+    return;
+  }
+  if (default_clauses.size() == 1) {
+    assert(default_clauses[0].size() == 1);
+    std::vector<int> active_clauses;
+    auto default_constant = default_clauses[0][0];
+    if (default_constant>0) {
+      writeForcingClauses(negative_forcing_clauses[variable_index], arbiter_assignment,active_clauses,nof_clauses,out);
+    } else {
+      writeForcingClauses(positive_forcing_clauses[variable_index], arbiter_assignment,active_clauses,nof_clauses,out);
     }
-  }
-  return std::make_pair(true,result);
-}
-
-void ModelLogger::handleForcingClauses(const std::vector<Clause>& clauses,Clause& default_activation,std::ostream& out,
-    int forced,const std::vector<int>& arbiter_assignment,int& nof_clauses) {
-  for (const Clause& c:clauses) {
-    auto [active,reduced_clause] = isSatisfiedByArbiterAssignment(c,arbiter_assignment);
-    if (active) {
-      reduced_clause.push_back(unused_variable);
-      writeClauseToStream(reduced_clause,out);
-      reduced_clause.pop_back();
-      for (int l:reduced_clause) {
-        writeClauseToStream({-l,-unused_variable},out);
-      }
-      writeClauseToStream({-unused_variable,forced},out);
-      default_activation.push_back(unused_variable);
-      nof_clauses+=reduced_clause.size()+2;
-      unused_variable++;
-    }
-    // c.pop_back();
-  }
-}
-
-void ModelLogger::writeForcingClausesAndDefaultValue(std::ostream& out,int index,const std::vector<int>& arbiter_assignment,int& nof_clauses) {
-  int existential=existential_variables[index];
-  assert (use_default_value[index]);
-  std::vector<Clause>& clauses=default_values[index]<0?positive_forcing_clauses[index]:negative_forcing_clauses[index];
-  Clause default_activation_clause;
-  handleForcingClauses(clauses,default_activation_clause,out,default_values[index]<0?existential:-existential,arbiter_assignment,nof_clauses);
-  default_activation_clause.push_back(default_values[index]);
-  writeClauseToStream(default_activation_clause,out);
-  nof_clauses++;
-}
-
-void ModelLogger::handleDefaultFunction(int index, Clause& default_activation,std::ostream& out,int& nof_clauses) {
-  int use_default=unused_variable;
-  unused_variable++;
-  default_activation.push_back(use_default);
-  writeClauseToStream(default_activation,out);
-  default_activation.pop_back();
-  for (auto& c:positive_default_function_clauses[index]) {
-    c.push_back(-use_default);
-    c.push_back(existential_variables[index]);
-    writeClauseToStream(c,out);
-    c.pop_back();
-    c.pop_back();
-  }
-  for (auto& c:negative_default_function_clauses[index]) {
-    c.push_back(-use_default);
-    c.push_back(-existential_variables[index]);
-    writeClauseToStream(c,out);
-    c.pop_back();
-    c.pop_back();
-  }
-  nof_clauses+=1+positive_default_function_clauses.size()+negative_default_function_clauses.size();
-}
-
-void ModelLogger::writeForcingClausesAndDefaultFunctions(std::ostream& out,int index,const std::vector<int>& arbiter_assignment,int& nof_clauses) {
-  int existential=existential_variables[index];
-  assert (!use_default_value[index]);
-  // int default_value;
-  // if (positive_default_function_clauses.size()>=negative_default_function_clauses.size()) {
-  //   default_value=existential;
-  // } else {
-  //   default_value=-existential;
-  // }  
-  Clause default_activation_clause;
-  /*
-   * The learned clauses do not necessarily correspond to the arbiter clauses under the current arbiter assignment
-   * (but to the forcing clauses as long as all assignments that were for building a forcing clauses were also
-   * used for sampling). This means that we cannot omit the positive "forcing" (in the sense of this class -- i.e. also arbiter clauses)
-   * clauses respectively negative forcing clauses as we did in the case of default values.
-   */
-  // std::vector<Clause>& clauses=default_value<0?positive_forcing_clauses[index]:negative_forcing_clauses[index];
-  // handleForcingClauses(clauses,default_activation_clause,out,-default_value,arbiter_assignment,nof_clauses);
-
-  handleForcingClauses(positive_forcing_clauses[index],default_activation_clause,out,existential,arbiter_assignment,nof_clauses);
-  handleForcingClauses(negative_forcing_clauses[index],default_activation_clause,out,-existential,arbiter_assignment,nof_clauses);
-
-  // std::vector<Clause>& default_function_clauses=default_value<0?positive_default_function_clauses[index]:negative_default_function_clauses[index];
-  // handleForcingClauses(default_function_clauses,default_activation_clause,out,-default_value,arbiter_assignment,nof_clauses);
-  // default_activation_clause.push_back(default_value);
-  // writeClauseToStream(default_activation_clause,out);
-  // nof_clauses++;
-
-  handleDefaultFunction(index,default_activation_clause,out,nof_clauses);
-}
-
-
-
-
-
-void ModelLogger::writeFormulaToStream(const std::vector<Clause>& formula,
-    std::ostream& out,const std::vector<int>& arbiter_assignment,int& nof_clauses) {
-  for (const auto& clause:formula) {
-    bool clause_added=writeClauseToStream(clause,out,arbiter_assignment);
-    if (clause_added) {
+    if (active_clauses.size() == 0) {
+      writeClauseToStream({default_constant},out);
       nof_clauses++;
-    }
+      return;
+    } 
+    auto rule_applies = -writeClauseActive(active_clauses, nof_clauses, out);
+    writeClauseToStream({rule_applies, default_constant},out);//if no forcing clause fires use the default
+    writeClauseToStream({-rule_applies, -default_constant},out);
+    nof_clauses +=2;
+    return;
+  }
+  std::vector<int> positive_active_clauses;
+  std::vector<int> negative_active_clauses;
+  writeForcingClauses(positive_forcing_clauses[variable_index], arbiter_assignment,positive_active_clauses,nof_clauses,out);
+  writeForcingClauses(negative_forcing_clauses[variable_index], arbiter_assignment,negative_active_clauses,nof_clauses,out);
+  //The following condition should never hold in the current version of the solver.
+  if (positive_active_clauses.size() == 0 && negative_active_clauses.size() == 0) {
+    writeFormulaToStream(default_clauses,nof_clauses,out);
+    return;
+  }
+  int default_active;
+  if (positive_active_clauses.size() == 0) {
+    default_active = -writeClauseActive(negative_active_clauses, nof_clauses, out);
+    writeClauseToStream({-default_active, -e},out);
+    nof_clauses++;
+  } else if (negative_active_clauses.size() == 0) {
+    default_active = -writeClauseActive(positive_active_clauses, nof_clauses, out);
+    writeClauseToStream({-default_active, e},out);
+    nof_clauses++;
+  } else {
+    auto positive_fires = -writeClauseActive(positive_active_clauses, nof_clauses, out);
+    auto negative_fires = -writeClauseActive(negative_active_clauses, nof_clauses, out);
+    writeClauseToStream({-positive_fires, e},out);
+    writeClauseToStream({-negative_fires, -e},out);
+    default_active = -writeClauseActive({positive_fires,negative_fires}, nof_clauses, out);
+    nof_clauses += 3;
+  }
+  writeClausalEncodingDefaults(default_clauses,default_active, nof_clauses,out);
+}
+
+int ModelLogger::writeClauseActive(Clause&& clause,int& nof_clauses, std::ostream& out) {
+  return writeClauseActive(clause, nof_clauses, out);
+}
+
+int ModelLogger::writeClauseActive(Clause& clause,int& nof_clauses, std::ostream& out) {
+  int active = unused_variable++;
+  clause.push_back(active);
+  writeClauseToStream(clause,out);
+  clause.pop_back();
+  for (auto l : clause) {
+    Clause cl {-l,-active};
+    writeClauseToStream(cl,out);
+  }
+  nof_clauses += clause.size()+1;
+  return active;
+}
+
+
+//auxiliary methods for writing formulae to streams
+
+void ModelLogger::writeFormulaToStream(const std::vector<Clause>& formula, 
+    int& nof_clauses, std::ostream& out) {
+  nof_clauses += formula.size();
+  for (const auto& clause : formula) {
+    writeClauseToStream(clause,out);
   }
 }
+
 
 void ModelLogger::writeClauseToStream(const Clause& clause,std::ostream& out) {
   for (int l:clause) {
@@ -244,8 +251,18 @@ void ModelLogger::writeClauseToStream(const Clause& clause,std::ostream& out) {
   out<<std::endl;
 }
 
+void ModelLogger::writeFormulaToStream(const std::vector<Clause>& formula,
+    const std::vector<int>& arbiter_assignment,int& nof_clauses, std::ostream& out) {
+  for (const auto& clause:formula) {
+    bool clause_added=writeClauseToStream(clause,arbiter_assignment,out);
+    if (clause_added) {
+      nof_clauses++;
+    }
+  }
+}
+
 bool ModelLogger::writeClauseToStream(const Clause& clause,
-    std::ostream& out,const std::vector<int>& arbiter_assignment) {
+    const std::vector<int>& arbiter_assignment, std::ostream& out) {
   for (int l:clause) {
     if (std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),l)) {
       return false;
@@ -255,43 +272,25 @@ bool ModelLogger::writeClauseToStream(const Clause& clause,
     if (std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),-l)) {
       continue;
     } 
-    if (abs(l)>last_variable_index_in_matrix) {
-      if (renamings_auxiliary_variables.end()==renamings_auxiliary_variables.find(abs(l))) {
-        renamings_auxiliary_variables[abs(l)]=unused_variable;
-        if (l<0) {
-          out<<std::to_string(-unused_variable);
-        } else {
-          out<<std::to_string(unused_variable);
-        }
-        unused_variable++;
-      } else {
-        int variable=renamings_auxiliary_variables[abs(l)];
-        if (l<0) {
-          out<<std::to_string(-variable);
-        } else {
-          out<<std::to_string(variable);
-        }
-      }
-      out<<" ";
-    } else {
-      out<<std::to_string(l);
-      out<<" ";
-    }
+    writeLiteral(l,out);
+    out<<" ";
   }
   out<<"0";
   out<<std::endl;
   return true;
 }
 
-
-void ModelLogger::writeModelAsAIGToFile(const std::string& file_name,const std::vector<int>& arbiter_assignment,bool binary_AIGER) {
-  std::vector<int> arbs(arbiter_assignment);
-  std::sort(arbs.begin(),arbs.end());
-  aiger_generator.computeCircuitRepresentation(arbs);
-  aiger_generator.writeToFile(file_name,binary_AIGER);
+void ModelLogger::writeLiteral(int literal, std::ostream& out) {
+  int v = var(literal);
+  if (v > max_variable_in_matrix) { //the variable is an auxiliary variable
+    if (renaming_auxiliaries.find(v) == renaming_auxiliaries.end()) {
+      renaming_auxiliaries[v] = unused_variable++;
+    }
+    out<<std::to_string(literal<0 ? -renaming_auxiliaries[v] : renaming_auxiliaries[v]);
+  } else {
+    out<<std::to_string(literal);
+  }
 }
-
-
 
 
 

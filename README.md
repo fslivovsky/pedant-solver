@@ -1,24 +1,35 @@
-<!--
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
--->
-
 # Pedant
-Pedant is a solver for dependency quantified boolean formulas (DQBFs) based on interpolation-based definition extraction.
+Pedant is a solver for Dependency Quantified Boolean Formulas (DQBF) based on interpolation-based definition extraction and Counterexample-Guided Inductive Synthesis (CEGIS).
 
 
-## Installing Pedant
-We only provide instructions for building Pedant on a LINUX system. For other systems consider using a virtual machine.
-<!--
-# install [UNIGEN 3](https://github.com/meelgroup/unigen)
--->
+## Installing PEDANT
 
+### Dependencies
+- [Boost](https://www.boost.org/)
+- [CMake >= 3.4](https://cmake.org/)
+- [GCC](https://gcc.gnu.org/)
+### Optional Dependencies
+Learning default function requires:
+- [mlpack](https://www.mlpack.org/)
+
+Using the validation tool requires:
+- [Python](https://www.python.org/)
+- [PySAT](https://pysathq.github.io/)
+### Included Dependencies
+Pedant is shipped with the following third party programs.
+Note that for some of these programs, Pedant uses adapted versions.
+- [CaDiCaL](https://github.com/arminbiere/cadical)
+- [Glucose](https://www.labri.fr/perso/lsimon/glucose/)
+- [Minisat](http://minisat.se)
+- [Aiger](https://github.com/arminbiere/aiger)
+- [ABC](https://github.com/berkeley-abc/abc)
+- [avy](https://bitbucket.org/arieg/avy/src/master/)
+- [docopt.cpp](https://github.com/docopt/docopt.cpp)
+
+### Build
+We only provide instructions for building PEDANT on a LINUX system.
 ```
-sudo apt install git
-sudo apt install cmake
-sudo apt install g++
-sudo apt install libboost-all-dev
-sudo apt install libmlpack-dev
-git clone https://github.com/perebor/pedant-solver
+git clone https://github.com/fslivovsky/pedant-solver pedant
 cd pedant
 git submodule init
 git submodule update
@@ -27,21 +38,22 @@ cmake ..
 make
 ```
 
-To build Pedant without support for machine learning use ```cmake -DUSE_ML=OFF..``` instead of ```cmake .. ```. In this case ```sudo apt install libmlpack-dev``` can be omitted.
-Note: Currently, the usage of machine learning is not really necessary. But this may change.
+To enable machine learning use ***-DUSE_ML=ON*** when calling cmake. 
+If the tool for validating certificates is not needed use ***-DBUILT_CERT_TOOLS=OFF*** when calling cmake. 
 
 ## Usage
-The solver can be run as follows:
 ```
-pedant <Input> [Options]
+pedant [Options] <Input> 
 ```
+where `Input` shall be the path to a DQDIMACS file.
+To get a list of options `pedant --help` can be used.
 
 ### Input
 
-Pedant expects the input to be given in DQDIMACS format.
-DQDIMACS is based on [QDIMCACS](http://www.qbflib.org/qdimacs.html). 
-The only difference between DQDIMACS and QDIMACS is that the prefix of a DQDIMACS file may contain lines starting with the character ***d***.
-A line starting with ***d*** introduces an existential variable and explicitly gives its dependencies. In the following we give a simple example of a DQDIMACS file:
+Pedant expects the input to be given as a PCNF in [DQDIMACS](http://forsyte.at/wp-content/uploads/idq_pos2014.pdf) format.
+DQDIMACS extends [QDIMCACS](http://www.qbflib.org/qdimacs.html) by allowing to explicitly state the dependencies of an existential variable.
+For this purpose DQDIMACS introduces the ***d*** quantifier block.
+In the following we give a simple example of a DQDIMACS file:
 ```
 p cnf 4 2
 a 1 2 0
@@ -50,44 +62,23 @@ d 4 2 0
 1 -3 0
 2 3 4 0
 ```
-In the above example we introduce universal variables 1 and 2, an existential variable 3 that depends on 1 and an existential variable 4 that depends on 2.
+The above DQDIMACS represents the DQBF `∀u1 ∀u2 ∃e1(u1) ∃e2(u2) (u1 ∨ ¬e1) ∧ (u2 ∨ e1 ∨ e2)`.
 
-### Options
-Pedant accepts the subsequent options:
-- ```-h, --help``` prints a help message.
-- ```-v, --version``` prints the version number.
-- ```--cnf file``` In case the given Input is satisfiable a clausal representation of a model is written to ```file``` in the DIMACS format.
-- ```--aag file``` prints a help message In case the given Input is satisfiable a circuit representation of a model is written to ```file``` in the ASCII AIGER format.
-- ```--aig file``` prints a help message In case the given Input is satisfiable a circuit representation of a model is written to ```file``` in the binary AIGER format.
 
-### Output
-The solver will give one of the following outputs:
-- It will print ```SATISFIABLE``` and exit with code ```10``` if the given formula is true.
-- It will print ```UNSATISFIABLE``` and exit with code ```20``` if the given formula is false.
-- It will print ```UNKNOWN``` and exit with code ```0``` if it could not conclude a result. This for example happens if the solver receives an abort signal.
-
-## Validation of certificates
-The subdirectory ```Certification``` contains python scripts that can be used to certify SAT-results of Pedant. 
-For this purpose the script ```certifyModel.py``` can be used as follows:
+## Validation of Certificates
+The subdirectory ```certification``` contains the python script ```certifyModel.py```.
+This script can be used to validate certificates generated by Pedant.
+To run this script use:
 ```
-certifyModel.py <Formula> <Certificate> [Options]
+certifyModel.py <Formula> <Certificate> 
 ```
 ### Inputs
 - ```Formula``` the DQDIMACS of interest
-- ```Certificate``` a certificate that was generated by Pedant for ```Formula```. The certificate can be given in each of the supported formats.
-
-### Options
-- ```check-def``` Checks if the given certificate uniquely defines the assignment of each existential variable for every universal assignment. This option is ignored if an AIGER certificate is given. 
-- ```check-cons``` Check if the given certificate is consistent, i.e. there is no universal assignment that makes the certificate unsatisfiable. This option is ignored if an AIGER certificate is given. 
-- ```std-dep``` Use the ''standard'' dependencies, instead of the extended dependencies for the check. This option is ignored if an AIGER certificate is given. 
+- ```Certificate``` a certificate that was generated by PEDANT for ```Formula```. The certificate can be given in each of the supported formats.
 
 ### Output
 -  ```0```  if certification succeeded.
 -  ```1```  if certification did not succeed.
-
-### Dependencies
-This script requires [PySAT](https://pysathq.github.io/) to be installed.
-To use the option ```--check-cons``` the 2QBF solver [CADET](https://github.com/MarkusRabe/cadet) has to be installed.
 
 
 ## Example
@@ -107,18 +98,12 @@ To run Pedant we can use:
 ```
 pedant formula.dqdimacs --aag model
 ```
-This will give the answer ```SATISFIABLE```.
-Next we can certify the result by using:
+Pedant will report that the formula is satisfiable and it will generate a certificate in the ASCII Aiger format.
+Next we can validate the generated certificate by:
 ```
 certifyModel.py formula.dqdimacs model
 ```
 This will print ```Model validated!```.
-
-
-
-
-
-
 
 
 <!--

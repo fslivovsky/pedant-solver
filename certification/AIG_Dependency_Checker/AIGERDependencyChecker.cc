@@ -12,10 +12,6 @@ namespace pedant {
 
 DependencyChecker::DependencyChecker(const std::string& filename, std::unordered_map<int,std::vector<int>>& deps) : given_dependencies(deps) {
   circuit=aiger_init();
-  // for (int i=0;i<given_dependencies.size();i++) {
-  //   given_dependencies[i];
-  //   // std::sort(given_dependencies[i].begin(),given_dependencies[i].end());
-  // }
   aiger_open_and_read_from_file(circuit,filename.c_str());
   for (int i=0;i<circuit->num_inputs;i++) {
     auto x = circuit->inputs[i];

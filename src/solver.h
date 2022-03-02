@@ -9,7 +9,8 @@
 #include <memory>
 
 #include "solvertypes.h"
-#include "cadical.h"
+#include "inputformula.h"
+#include "satsolver.h"
 #include "definabilitychecker.h"
 #include "simplevaliditychecker.h"
 #include "skolemcontainer.h"
@@ -17,79 +18,87 @@
 #include "unatechecker.h"
 #include "configuration.h"
 #include "interrupt.h"
+#include "dependencycontainer.h"
+
 
 namespace pedant {
 
 class Solver {
  public:
-  Solver(std::vector<int>& universal_variables, std::unordered_map<int, std::vector<int>>& dependency_map, std::vector<Clause>& matrix, Configuration& config);
+  Solver( InputFormula& formula, Configuration& config);
   int solve();
   int newVariable();
   void printStatistics();
 
+
  private:
   bool checkArbiterAssignment();
-  bool analyzeConflict(std::vector<int>& counterexample_universals, std::vector<int>& failed_existential_literals, std::vector<int>& failed_arbiter_literals);
+  bool analyzeConflict( const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, 
+                        const std::vector<int>& failed_arbiters, const std::vector<int>& complete_universal_assignment, 
+                        const std::vector<int>& complete_existential_assignment);
+  void analyzeForcingConflict(int forced_literal, const std::vector<int> failed_existentials, const std::vector<int>& failed_universals);
   bool findArbiterAssignment();
-  std::tuple<bool, std::vector<int>> checkForced(int literal, std::vector<int>& assignment_fixed, std::vector<int>& assignment_variable);
-  std::tuple<Clause, bool> getForcingClause(int literal, std::vector<int>& assignment);
+  std::tuple<Clause, bool> getForcingClause(int literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals);
   void addForcingClause(Clause& forcing_clause, bool reduced);
-  std::tuple<bool, std::vector<Clause>, std::vector<std::tuple<std::vector<int>,int>>, std::vector<int>> getDefinition(int variable, std::vector<int>& assumptions, bool use_extended_dependencies);
-  template<typename T> void checkDefined(T& variables_to_check, std::vector<int>& assumptions, bool use_extended_dependencies);
-  void addDefinition(int variable, std::vector<Clause>& definition, const std::vector<std::tuple<std::vector<int>,int>>& definition_circuit, std::vector<int>& conflict);
-  int addArbiter(int literal, std::vector<int>& assignment);
-  std::tuple<int, Clause, Clause> createArbiter(int variable, std::vector<int>& assignment);
-  std::vector<int> restrictToArbiter(std::vector<int>& literals);
-  std::vector<int> restrictToExistential(std::vector<int>& literals);
-
-  #ifdef USE_MACHINE_LEARNING
-  template<typename T> void setLearnedDefaultFunctions(T& variables_to_check);
-  #endif
-
+  template<typename T> void checkDefined(T variables_to_check, const std::vector<int>& assumptions, bool use_extended_dependencies, int conflict_limit);
+  void addDefinition(int variable, std::vector<Clause>& definition, const std::vector<std::tuple<std::vector<int>,int>>& definition_circuit, std::vector<int>& conflict, bool reduced = false);
+  std::tuple<int, bool> getArbiter(int existential_literal, const std::vector<int>& complete_universal_assignment, bool introduce_clauses);
   void checkUnates();
-  template<typename T>
-  void setRandomDefaultValues(T& variables_to_set);
-  void addArbitersForConstants();
-  void minimizeFailedArbiterAssignment(std::vector<int>& failed_arbiter_assignment, std::vector<int>& universal_counterexample);
+  std::tuple<bool, int> hasForcingClause(const std::vector<int>& existential_assignment);
+  void setRandomDefaultValues();
+  void forcingClausesFromMatrix();
+  void setDefaultValuesFromResponse(const std::vector<int>& universal_assignment, const std::vector<int>& arbiter_assignment);
+  void insertIntoDefaultContainer(int existential_literal, const std::vector<int>& universal_assignment, const std::vector<int>& existential_assignment);
+  
+
+
+  std::vector<Clause> getDefinition(int var, const std::vector<int>& dependencies, std::vector<int>& conflict);
+
+  void updateDynamicDependencies(int var, std::set<int>& support_set, std::set<int>& updated_variables);
+
+  void processInnermostExistentials(int start_index_block, int end_index_block);
 
   int last_used_variable;
   std::vector<int> arbiter_assignment;
   std::vector<int> arbiter_variables;
+  std::unordered_map<int, int> arbiter_to_existential;
+  std::unordered_map<int, int> arbiter_to_index;
   std::vector<int> existential_variables;
+  std::vector<int> innermost_existentials;
   std::vector<int> universal_variables;
-  std::unordered_set<int> arbiter_variables_set;
   std::set<int> undefined_variables;
   std::set<int> variables_to_check;
   std::set<int> variables_recently_forced;
   std::unordered_set<int> universal_variables_set;
-  CadicalSolver arbiter_solver, forced_solver;
-  std::unordered_map<int, std::vector<int>> dependency_map, extended_dependency_map;
-  std::unordered_map<int, std::unordered_set<int>> dependency_map_set, extended_dependency_map_set;
+  std::shared_ptr<SatSolver> arbiter_solver;
+  DependencyContainer dependencies;
   std::vector<Clause> matrix;
   DefinabilityChecker definabilitychecker;
   std::unique_ptr<UnateChecker> unate_checker;
-  bool use_random_defaults;
   Configuration config;
+  std::unordered_map<int, std::vector<int>> variable_to_forcing_common;
+  SimpleValidityChecker validitychecker;
+  SkolemContainer skolemcontainer;
+  std::unordered_map<int, int> arbiter_counts;
+  bool preprocessing_done;
+  std::set<int> variables_defined_by_universals;
 
   struct SolverStats {
     unsigned int arbiters_introduced = 0;
     unsigned int conflicts = 0;
+    unsigned int linear_conflicts = 0;
+    unsigned int sum_forcing_clause_lengths = 0;
     unsigned int forcing_clauses = 0;
+    unsigned int conditional_definitions = 0;
     unsigned int arbiter_clauses = 0;
     unsigned int defined = 0;
     unsigned int unates = 0;
+    unsigned int existential_conflict_literals = 0;
+    unsigned int universal_conflict_literals = 0; 
+    unsigned int arbiter_conflict_literals = 0;
   } solver_stats;
 
-  SimpleValidityChecker validitychecker;
-  SkolemContainer skolemcontainer;
-
 };
-
-// Implementation of inline methods
-
-inline int Solver::newVariable() {
-  return ++last_used_variable;
-}
 
 }
 

@@ -57,16 +57,21 @@ def checkModel(universals_variables, dependency_dict, matrix,model,model_clauses
       dependencies=computeExtendedDependencies(dependency_dict)
     else:
       dependencies=dependency_dict
-    variables_to_consider=universals_variables + existential_variables
-    for e in existential_variables:
-      if e in model:
-        #The candidate-model may contain additional variables as those contained in the matrix.
-        #Thus the check shall pass if additional variables occur in the candidate-model --
-        #as long as those variables do not occur in the matrix
-        variablesOK, false_variables = check_occuring_variables(model[e],variables_to_consider,dependencies[e]+[e])
-        if not variablesOK:
-          print("The given model for variable {0} contains the invalid variables: {1}.".format(e,false_variables))
-          return False 
+    # variables_to_consider=universals_variables + existential_variables
+    # for e in existential_variables:
+    #   if e in model:
+    #     #The candidate-model may contain additional variables as those contained in the matrix.
+    #     #Thus the check shall pass if additional variables occur in the candidate-model --
+    #     #as long as those variables do not occur in the matrix
+    #     variablesOK, false_variables = check_occuring_variables(model[e],variables_to_consider,dependencies[e]+[e])
+    #     if not variablesOK:
+    #       print("The given model for variable {0} contains the invalid variables: {1}.".format(e,false_variables))
+    #       return False 
+    variablesOK, var,false_variables = checkDynamicDependencies(dependency_dict, model,universals_variables,existential_variables)
+    if not variablesOK:
+      print("The given model for variable {0} contains the invalid variables: {1}.".format(var,false_variables))
+      return False 
+
   #Additional sanity check. If the candidate-model is UNSAT it is necessarily inconsistent.
   #Thus it does not certify that the given DQBF is true.
   model_checker = Cadical(bootstrap_with=model_clauses)
@@ -127,7 +132,7 @@ def checkModelCNF(filename_formula,filename_model,check_defined=True,check_consi
       for the DQBF given by <filename_formula>.
 
       Note: Even if the given candidate model is actually not a model
-      it can still certify the trueness of the given DQBF.
+      it can still certify the truth of the given DQBF.
 
       Reference Definition:
       Friedrich Slivovsky: Interpolation-based semantic gate extraction and its applications to QBF preprocessing.
@@ -222,7 +227,41 @@ def check_matrix(solver,matrix):
       print("Falsified Clause: {}".format(clause))
       return False
   return True
-  
+
+
+def getModelVaribles(var, model_function, universal_variables, existential_variables, model_variables) :
+  """
+  Get all universal variables from the definition for var and recursively all universal variables from dependencies
+  of the existential variables
+  """
+  if var in model_variables :
+    return
+  model = model_function[var]
+  uvars = set()
+  evars = set()
+  for clause in model :
+    v1 = {abs(l) for l in clause if abs(l) in universal_variables}
+    uvars = uvars.union(v1)
+    v2 = {abs(l) for l in clause if abs(l) in existential_variables}
+    evars = evars.union(v2)
+  model_variables[var] = uvars
+  for e in evars :
+    if not e in model_variables :
+      getModelVaribles(e,model_function, universal_variables, existential_variables, model_variables)
+    model_variables[var] = model_variables[var].union(model_variables[e])
+  return
+
+def checkDynamicDependencies(dependency_dict, model_function, universal_variables, existential_variables) :
+  model_variables = {}
+  for var in model_function :
+    getModelVaribles(var,model_function,universal_variables,existential_variables,model_variables)
+    dep_set = set(dependency_dict[var])
+    if not model_variables[var] <= dep_set :
+      return [False,var,model_variables[var].difference(dep_set)]
+  # for e,vars in model_variables.items() :
+  #   print("Variable {0} depends on {1}".format(e,vars))
+  return [True,None,[]]
+
 
 
 def check_occuring_variables(formula,variables_to_consider,allowed_variables) :
@@ -316,17 +355,18 @@ def checkModelAIG(filename_formula,filename_model,binary_circuit,base_name) :
 
   """
   simplify_model = True
-  if not os.path.isfile("./build/abc/abc"):
+  base_path =  os.path.abspath(os.path.dirname(os.path.realpath(__file__))+"/..")
+  if not os.path.isfile(base_path + "/build/abc/abc"):
     simplify_model=False
   nofVars, universals_variables, dependency_dict, matrix = parseDQDIMACSFile(filename_formula) 
   with tempfile.TemporaryDirectory() as tmp_dir:
     if not binary_circuit:
       f = tmp_dir+"/"+base_name + ".aig"
-      subprocess.call(["./build/aiger-1.9.9/aigtoaig", filename_model,f])
+      subprocess.call([base_path + "/build/aiger-1.9.9/aigtoaig", filename_model,f])
       filename_model = f
     if simplify_model:
       model_file = tmp_dir+"/"+base_name+"_simplified.aig"
-      subprocess.call(["./build/abc/abc", "-c", "read "+tmp_dir+"/"+filename_model+"; dc2; dc2; dc2; fraig; write "+model_file],
+      subprocess.call([base_path + "/build/abc/abc", "-c", "read "+tmp_dir+"/"+filename_model+"; dc2; dc2; dc2; fraig; write "+model_file],
           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     else :
       model_file=filename_model
@@ -337,14 +377,14 @@ def checkModelAIG(filename_formula,filename_model,binary_circuit,base_name) :
           file.write(" ")
           file.write(" ".join([str(d) for d in dependency_dict[var]]))
         file.write(os.linesep)
-    dependencies_ok = subprocess.call(["./build/src/dependencychecker", model_file,tmp_dir+"/dependencies"])
+    dependencies_ok = subprocess.call([base_path + "/build/certification/AIG_Dependency_Checker/dependencychecker", model_file,tmp_dir+"/dependencies"])
     if (dependencies_ok!=0) :
       print ("Invalid Dependencies")
       return False
     else :
       print ("Dependencies OK")
 
-    subprocess.call(["./build/src/aig2cnf", model_file, tmp_dir+"/"+base_name+".dimacs"])    
+    subprocess.call([base_path + "/build/certification/AIG2CNF/aig2cnf", model_file, tmp_dir+"/"+base_name+".dimacs"])    
     _,_,_,clauses = parseDQDIMACSFile(tmp_dir+"/"+base_name+".dimacs")
 
   result = checkModel(universals_variables,dependency_dict,matrix,[],clauses,False,False,False,False)
@@ -366,7 +406,7 @@ if __name__ == "__main__":
   parser.add_argument('--std-dep', action='store_true', help='If true MODEL may not use variables from the extended dependencies.')
   args = parser.parse_args()
   format_determined = False
-  base_name = args.filename_model
+  base_name = os.path.basename(args.filename_model)
   if len(args.filename_model)>4:
     file_name = args.filename_model
     format_determined = True
@@ -399,7 +439,7 @@ if __name__ == "__main__":
   if model_format==1 :
     is_model=checkModelCNF(args.filename_formula,args.filename_model,args.check_def,args.check_cons,not args.std_dep)
   elif model_format==2 :
-    # subprocess.call(["./build/aiger-1.9.9/aigtoaig", filename,filename+".aig"])
+    # subprocess.call(["../build/aiger-1.9.9/aigtoaig", filename,filename+".aig"])
     is_model=checkModelAIG(args.filename_formula,args.filename_model,False,base_name)
   else :
     is_model=checkModelAIG(args.filename_formula,args.filename_model,True,base_name)

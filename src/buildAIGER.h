@@ -4,6 +4,7 @@
 #include <vector>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 
 #include "solvertypes.h"
@@ -13,83 +14,107 @@ extern "C" {
 
 namespace pedant {
 
-typedef std::vector<std::tuple<std::vector<int>,int>> Def_Circuit;
 
   
 class AIGERBuilder {
  public:
-  AIGERBuilder(const std::unordered_map<int,int>& indices,const std::vector<int>& existential_variables, const std::vector<int>& universal_variables,
-    const std::vector<Def_Circuit>& defs,const std::vector<std::vector<std::tuple<std::vector<int>,Def_Circuit>>>& conf_def,
-    const std::vector<std::vector<Clause>>& pos_force, const std::vector<std::vector<Clause>>& neg_force,
-    const std::vector<bool>& use_defaults,const std::vector<int>& defaults,
-    const std::vector<std::vector<Clause>>& pos_default_fun,
-    const std::vector<std::vector<Clause>>& neg_default_fun);
+  /**
+   * The second tuple component can only be negative in the last vector element if the first component is empty
+   **/
+  using DefCircuit = std::vector<std::tuple<std::vector<int>,int>>;
+
+  AIGERBuilder(const std::unordered_map<int,size_t>& indices, int max_var_in_matrix, 
+      const std::vector<int>& existential_variables, const std::vector<int>& universal_variables);
   ~AIGERBuilder();
-  void computeCircuitRepresentation(const std::vector<int>& arbiter_assignment);
-  bool writeToFile(const std::string& filename,bool binary_mode);
-  void init(int max_var_in_matrix);
+  /**
+   * @param arbiter_assignment must be sorted
+   **/
+  bool writeToFile(const std::string& filename, bool binary_mode,
+      const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
+      const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
+      const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
+      const std::vector<int>& arbiter_assignment);
+  
+  /**
+   * This method writes an aiger representation of the skolem functions for the variables given by variables_to_consider
+   * to the specified file.
+   * Warning: If extended dependencies are used this may imply that that the generated aiger is ill formed, whcih means
+   * that nothing is written to the given file.
+   * If extended dependencies are used skolem functions may depend on other existential variables. 
+   * But this method does no check if variables_to_consider contains all those existential variables
+   * @param arbiter_assignment must be sorted
+   **/
+  bool writeToFile(const std::string& filename, bool binary_mode, const std::vector<int>& variables_to_consider, 
+      const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
+      const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
+      const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
+      const std::vector<int>& arbiter_assignment);
+
 
  private:
+
   aiger* circuit;
-  bool already_built=false;
   std::unordered_map<int,int> renamings;
-  const std::unordered_map<int,int>& indices;
+  const std::unordered_map<int,size_t>& indices;
   const std::vector<int>& existential_variables;
   const std::vector<int>& universal_variables;
-  const std::vector<Def_Circuit>& definitions_circuits;
-  const std::vector<std::vector<std::tuple<std::vector<int>,Def_Circuit>>>& conditional_definitions_circuits;
-  const std::vector<std::vector<Clause>>& positive_forcing_clauses;
-  const std::vector<std::vector<Clause>>& negative_forcing_clauses;
-  const std::vector<bool>& use_default_value;
-  const std::vector<int>& default_values;
-  const std::vector<std::vector<Clause>>& positive_default_function_clauses;
-  const std::vector<std::vector<Clause>>& negative_default_function_clauses;
 
   int intermediate_variables_start;
   int last_used_intermediate_variable;
 
+  void computeCircuitRepresentation(const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
+      const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
+      const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
+      const std::vector<int>& arbiter_assignment);
+
+  //generate restricted circuit
+  void computeCircuitRepresentation(const std::vector<int>& variables_to_consider,
+      const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
+      const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
+      const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
+      const std::vector<int>& arbiter_assignment);
+
+  //we first have to compute the aiger representations of the arguments
   void addAdderToCircuit(int in1,int in2, int out);
-  void addAdderToCircuit(int in, int out);
-  void addAdderToCircuit(int out);
 
-  void addAdderToCircuitCheckInputs(int in1,int in2, int out,const std::vector<int>& arbiter_assignment);
-  void addAdderToCircuitCheckInputsUseConstantInput(int in1,int in2, int out,const std::vector<int>& arbiter_assignment);
-  int checkVariableAndEliminateArbiters(int l,const std::vector<int>& arbiter_assignment);
+  int combineAIGERVariables(int in1,int in2);
 
-  void addDefinition(int variable_index, const Def_Circuit& def,const std::vector<int>& arbiter_assignment);
+  bool addDefinitionCircuitAdder(int defined_variable, const std::vector<int>& inputs, int gate_output, std::unordered_map<int,int>& gate_renaming, const std::vector<int>& arbiter_assignment);
+
+  void addSkolemFunction(int variable, const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
+      const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
+      const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
+      const std::vector<int>& arbiter_assignment);
+  void addDefinition(int variable_index, const DefCircuit& def,const std::vector<int>& arbiter_assignment);
+  void addForcingClauses(int variable, const std::vector<Clause>& positive_forcing_clauses, const std::vector<Clause>& negative_forcing_clauses, 
+      std::vector<Clause>& default_clauses, const std::vector<int>& arbiter_assignment);
   int checkVariableInDefinition(int l);
 
   int getIsActiveCircuit(const std::vector<Clause>& clauses, const std::vector<int>& arbiter_assignment);
   int getIsActiveCircuit(const Clause& clause);
+  bool write(const std::string& filename, bool binary_mode);
 
+  /**
+   * Separate those clauses with a positive last literal from those with a negative last literal.
+   * This method can be used to separate positive and negative default clauses
+   **/
+  static std::tuple<std::vector<Clause>,std::vector<Clause>> filterClauses(const std::vector<Clause>& clauses);
+  /**
+   * If there is some element x of arbiter_assignment such that conflict contains -x this method returns false.
+   * Otherwise it returns true.
+   **/
   static bool isConflictEntailed(const std::vector<int>& conflict,const std::vector<int>& arbiter_assignment);
   static std::pair<bool,Clause> removeArbiters(const Clause& clause, const std::vector<int>& arbiter_assignment);
-  int getAIGERRepresentation(int x);
+  int getAIGERRepresentation(int x) const;
+  int getAIGERNegation(int x) const;
 };
 
-inline AIGERBuilder::AIGERBuilder(const std::unordered_map<int,int>& indices,
-    const std::vector<int>& existential_variables,
-    const std::vector<int>& universal_variables,
-    const std::vector<Def_Circuit>& defs,const std::vector<std::vector<std::tuple<std::vector<int>,Def_Circuit>>>& conf_def,
-    const std::vector<std::vector<Clause>>& pos_force,
-    const std::vector<std::vector<Clause>>& neg_force,
-    const std::vector<bool>& use_defaults,const std::vector<int>& defaults,
-    const std::vector<std::vector<Clause>>& pos_default_fun,
-    const std::vector<std::vector<Clause>>& neg_default_fun) : indices(indices), circuit(nullptr),
-      existential_variables(existential_variables),universal_variables(universal_variables),
-      definitions_circuits(defs), conditional_definitions_circuits(conf_def),positive_forcing_clauses(pos_force),
-      negative_forcing_clauses(neg_force),use_default_value(use_defaults),default_values(defaults),
-      positive_default_function_clauses(pos_default_fun), negative_default_function_clauses(neg_default_fun) {
+inline int AIGERBuilder::getAIGERRepresentation(int x) const {
+  return x > 0 ? 2*x : -2*x+1;
 }
 
-inline AIGERBuilder::~AIGERBuilder() {
-  aiger_reset(circuit);
-}
-
-inline void AIGERBuilder::init(int max_var_in_matrix) {
-  intermediate_variables_start=max_var_in_matrix+1;
-  last_used_intermediate_variable=max_var_in_matrix;
-  circuit=aiger_init();
+inline int AIGERBuilder::getAIGERNegation(int x) const {
+  return x^1;
 }
 
 

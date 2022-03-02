@@ -44,9 +44,9 @@ bool ITPSolver::addClause(Clause& clause, bool add_to_first_part) {
   }
 }
 
-bool ITPSolver::solve(std::vector<int>& assumptions) {
+bool ITPSolver::solve(std::vector<int>& assumptions, int limit) {
   auto minisat_assumptions = miniSATLiterals(assumptions);
-  return interpolatingsolver->solve(minisat_assumptions);
+  return interpolatingsolver->solve(minisat_assumptions, limit);
 }
 
 std::vector<int> ITPSolver::getConflict() {
@@ -54,7 +54,7 @@ std::vector<int> ITPSolver::getConflict() {
   return literalsFromMiniSATLiterals(minisat_literals);
 }
 
-std::tuple<std::vector<std::tuple<std::vector<int>,int>>, std::vector<int>> ITPSolver::getDefinition(std::vector<int>& input_variable_ids, int output_variable_id, int offset, bool compress) {
+std::tuple<std::vector<std::tuple<std::vector<int>,int>>, std::vector<int>> ITPSolver::getDefinition(const std::vector<int>& input_variable_ids, int output_variable_id, int offset, bool compress) {
   return interpolatingsolver->getDefinition(input_variable_ids, output_variable_id, compress, std::max(offset, max_var_index));
 }
 

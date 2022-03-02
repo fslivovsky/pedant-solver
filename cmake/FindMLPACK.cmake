@@ -27,11 +27,11 @@
 # UNIX paths are standard, no need to specify them.
 find_library(MLPACK_LIBRARY
 	NAMES mlpack
-	PATHS "$ENV{ProgramFiles}/mlpack/lib"  "$ENV{ProgramFiles}/mlpack/lib64" "$ENV{ProgramFiles}/mlpack"
+	PATHS "$ENV{ProgramFiles}/mlpack/lib"  "$ENV{ProgramFiles}/mlpack/lib64" "$ENV{ProgramFiles}/mlpack" "${CMAKE_SOURCE_DIR}/ml_pack/lib"
 )
 find_path(MLPACK_INCLUDE_DIR
 	NAMES mlpack/core.hpp mlpack/prereqs.hpp
-	PATHS "$ENV{ProgramFiles}/mlpack"
+	PATHS "$ENV{ProgramFiles}/mlpack" "${CMAKE_SOURCE_DIR}/ml_pack/include"
 )
 
 

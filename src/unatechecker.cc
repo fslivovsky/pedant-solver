@@ -2,16 +2,16 @@
 #include "utils.h"
 #include <cassert>
 #include <unordered_map>
+#include "solver_generator.h"
 
 namespace pedant {
 
 UnateChecker::UnateChecker(std::vector<Clause>& matrix,
     const std::vector<int>& existentials,
-    int& last_used_variable) 
-    : max_variable(last_used_variable),matrix(matrix),existential_variables(existentials) {
-
-  // negated_matrix=negateFormula(matrix,max_variable);
-  std::vector<Clause> negated_matrix=negateFormula(matrix,max_variable);
+    int& last_used_variable, const Configuration& config) 
+    : max_variable(last_used_variable),matrix(matrix),existential_variables(existentials), config(config) {
+  unate_solver = giveSolverInstance(config.unate_solver);
+  auto [negated_matrix, _] = negateFormula(matrix,max_variable);
 
   std::sort(existential_variables.begin(),existential_variables.end());
   renamed_existentials.reserve(existential_variables.size());
@@ -30,9 +30,9 @@ UnateChecker::UnateChecker(std::vector<Clause>& matrix,
   }
   auto renamed_negated_matrix=renameFormula(negated_matrix,renaming);
 
-  unate_solver.appendFormula(matrix);
-  unate_solver.appendFormula(renamed_negated_matrix);
-  unate_solver.appendFormula(equalities_for_renamings);
+  unate_solver->appendFormula(matrix);
+  unate_solver->appendFormula(renamed_negated_matrix);
+  unate_solver->appendFormula(equalities_for_renamings);
 
 }
 
@@ -86,7 +86,7 @@ std::vector<Clause> UnateChecker::findUnates(const std::vector<int>& variables_t
         continue;
       }
 
-      auto conflict = unate_solver.getFailed(arbiter_assignment);
+      auto conflict = unate_solver->getFailed(arbiter_assignment);
       Clause unate_clause {unate_literal};
       unate_clause.reserve(conflict.size()+1);
 
@@ -124,8 +124,9 @@ bool UnateChecker::checkUnateLiteral(int literal,int copied_literal, std::vector
   assumptions.push_back(literal);
   assumptions.push_back(copied_literal);
 
-  unate_solver.assume(assumptions);
-  bool result = (unate_solver.solve(2000) == 20); // Make conflict limit configurable.
+  unate_solver->assume(assumptions);
+  // bool result = (unate_solver->solve(2000) == 20); // Make conflict limit configurable.
+  bool result = (config.use_conflict_limit_unate_solver ? unate_solver->solve(config.conflict_limit_unate_solver) : unate_solver->solve()) == 20;
 
   assumptions.pop_back();
   assumptions.pop_back();

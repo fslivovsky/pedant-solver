@@ -12,3 +12,9 @@ add_library(aiger_library aiger.h aiger.c)
 
 add_executable(aigtoaig aigtoaig.c)
 target_link_libraries(aigtoaig PRIVATE aiger_library)
+
+#add_executable(aigsplit aigsplit.c)
+#target_link_libraries(aigsplit PRIVATE aiger_library)
+
+#add_executable(aigtocnf aigtocnf.c)
+#target_link_libraries(aigtocnf PRIVATE aiger_library)

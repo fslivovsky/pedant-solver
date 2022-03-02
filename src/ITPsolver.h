@@ -17,9 +17,9 @@ class ITPSolver {
   ITPSolver(std::vector<Clause>& _first_part, std::vector<Clause>& _second_part);
   void resetSolver();
   bool addClause(Clause& clause, bool add_to_first_part=true);
-  bool solve(std::vector<int>& assumptions);
+  bool solve(std::vector<int>& assumptions, int limit=-1);
   std::vector<int> getConflict();
-  std::tuple<std::vector<std::tuple<std::vector<int>,int>>, std::vector<int>> getDefinition(std::vector<int>& input_variable_ids, int output_variable_id, int offset, bool compress=true);
+  std::tuple<std::vector<std::tuple<std::vector<int>,int>>, std::vector<int>> getDefinition(const std::vector<int>& input_variable_ids, int output_variable_id, int offset, bool compress=true);
 
  private:
   std::unique_ptr<InterpolatingSolver> interpolatingsolver;

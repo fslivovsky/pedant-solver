@@ -3,13 +3,17 @@
 
 namespace pedant {
 
-Preprocessor::Preprocessor(std::vector<int>& universal_variables, std::unordered_map<int, std::vector<int>>& dependency_map, std::vector<Clause>& matrix): universal_variables(universal_variables), universal_variables_set(universal_variables.begin(), universal_variables.end()), dependency_map(dependency_map), matrix(matrix) {
-  for (auto& [variable, dependencies]: dependency_map) {
-    dependency_map_set[variable] = std::unordered_set<int>(dependencies.begin(), dependencies.end());
-  }
+
+Preprocessor::Preprocessor(DQDIMACS& formula, const Configuration& config) : formula(formula), config(config), 
+    dependencies(formula, config) {
 }
 
-int Preprocessor::applyForallReduction(Clause& clause) {
+
+int Preprocessor::applyForallReduction(Clause& clause, const std::unordered_set<int>& universal_variables_set, const std::unordered_set<int>& innermost_existentials, 
+    const std::unordered_map<int, std::unordered_set<int>>& dependency_map_set) { 
+  if (!restrictTo(clause, innermost_existentials).empty()) {
+    return 0;
+  }
   Clause universal_clause = restrictTo(clause, universal_variables_set);
   Clause existential_clause = restrictTo(clause, dependency_map_set);
   clause = existential_clause;
@@ -19,7 +23,7 @@ int Preprocessor::applyForallReduction(Clause& clause) {
     bool is_dependency = false;
     for (auto existential_literal: existential_clause) {
       auto existential_variable = var(existential_literal);
-      if (dependency_map_set[existential_variable].find(universal_variable) != dependency_map_set[existential_variable].end()) {
+      if (dependency_map_set.at(existential_variable).find(universal_variable) != dependency_map_set.at(existential_variable).end()) {
         is_dependency = true;
         break;
       }
@@ -31,12 +35,55 @@ int Preprocessor::applyForallReduction(Clause& clause) {
     }
   }
   return reduced;
+
 }
 
-void Preprocessor::preprocess() {
-  for (auto& clause: matrix) {
-    applyForallReduction(clause);
+InputFormula Preprocessor::preprocess() {
+  InputFormula result;
+  if (config.ignore_innnermost_existentials && !formula.lastBlockType()) {
+    //formula.getExistentialBlocks().size()-2 the start index of the last block
+    result.start_index_innnermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-2];
+    result.end_index_innnermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-1];
+    result.innermost_existential_block_present = true;
   }
+
+  if (config.extended_dependencies) {
+    auto [deps, extended_deps] = dependencies.getExtendedDependencies();
+    result.dependencies = std::move(deps);
+    result.extended_dependenices = std::move(extended_deps);
+    std::sort(formula.getExistentials().begin() + result.start_index_innnermost_existentials, formula.getExistentials().begin() + result.end_index_innnermost_existentials);
+  } else {
+    auto deps = dependencies.getDependencies();
+    result.dependencies = deps;
+    result.extended_dependenices = std::move(deps);
+  }
+
+
+  result.matrix = std::move(formula.getMatrix());
+  result.universal_variables = std::move(formula.getUniversals());
+  result.existential_variables = std::move(formula.getExistentials());
+
+  for (const auto& [var, deps] : formula.getExplicitDependencies()) {
+    result.existential_variables.push_back(var);
+  }
+
+  if (config.apply_forall_reduction) {
+    std::unordered_set<int> universal_set (result.universal_variables.begin(), result.universal_variables.end());
+    std::unordered_set<int> innermost_existentials;
+    if (config.ignore_innnermost_existentials && !formula.lastBlockType()) {
+      innermost_existentials.insert(result.existential_variables.begin() + result.start_index_innnermost_existentials,
+                                    result.existential_variables.begin() + result.end_index_innnermost_existentials);
+    } 
+    std::unordered_map<int, std::unordered_set<int>> dependency_map_set;
+    for (auto& [variable, dependencies] : result.dependencies) {
+      dependency_map_set[variable] = std::unordered_set<int>(dependencies.begin(), dependencies.end());
+    }
+    for (auto& clause: result.matrix) {
+      applyForallReduction(clause, universal_set, innermost_existentials,  dependency_map_set);
+    }
+  }
+  return result;
 }
+
 
 }

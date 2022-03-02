@@ -13,3 +13,6 @@
 [submodule "interpolatingsolver"]
 	path = interpolatingsolver
 	url = https://github.com/perebor/interpolatingsolver
+[submodule "docopt"]
+	path = docopt
+	url = https://github.com/docopt/docopt.cpp

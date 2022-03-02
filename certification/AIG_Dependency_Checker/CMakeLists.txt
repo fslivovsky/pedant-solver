@@ -1,0 +1,4 @@
+project(aig_dependency_checker)
+
+add_executable(dependencychecker AIGERDependencyChecker.h AIGERDependencyChecker.cc)
+target_link_libraries(dependencychecker PRIVATE aiger_library)
