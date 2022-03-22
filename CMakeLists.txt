@@ -111,8 +111,8 @@ include_directories(docopt)
 
 add_subdirectory(src)
 
-option(BUILT_CERT_TOOLS "Build tools required for checking AIGER certificates" ON)
-if (BUILT_CERT_TOOLS)
+option(BUILD_CERT_TOOLS "Build tools required for checking AIGER certificates" ON)
+if (BUILD_CERT_TOOLS)
 	add_subdirectory(certification/AIG2CNF)
 	add_subdirectory(certification/AIG_Dependency_Checker)
 endif()

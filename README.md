@@ -29,17 +29,15 @@ Note that for some of these programs, Pedant uses adapted versions.
 ### Build
 We only provide instructions for building PEDANT on a LINUX system.
 ```
-git clone https://github.com/fslivovsky/pedant-solver pedant
+git clone --recursive https://github.com/fslivovsky/pedant-solver pedant
 cd pedant
-git submodule init
-git submodule update
 mkdir build && cd build
 cmake ..
 make
 ```
 
-To enable machine learning use ***-DUSE_ML=ON*** when calling cmake. 
-If the tool for validating certificates is not needed use ***-DBUILT_CERT_TOOLS=OFF*** when calling cmake. 
+To enable machine learning use ***-DUSE_ML=ON*** when calling cmake.
+If the tool for validating certificates is not needed use ***-DBUILD_CERT_TOOLS=OFF*** when calling cmake.
 
 ## Usage
 ```
