@@ -14,16 +14,18 @@ endif()
 
 option(STATIC_BUILD "Build a static binary." OFF)
 if(STATIC_BUILD)
+  # If machine learning shall be enabled you have to provide a static build of MLPack
   set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
   set(BUILD_SHARED_LIBS OFF)
   set(CMAKE_EXE_LINKER_FLAGS "-static")
+  set(Boost_USE_STATIC_LIBS        ON)
 endif()
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 add_compile_options (-fpic)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
- add_compile_options (-Og)
+ #add_compile_options (-Og)
 endif() 
 
 include_directories(include)
@@ -80,13 +82,15 @@ if (USE_ML)
     message( WARNING "To use the option USE_ML, MLPack needs to be installed. Proceeding with USE_ML=OFF.")
   	set (USE_ML OFF)
   endif ()
-  # Look for Armadillo headers.
-  find_package(Armadillo)
-  if (ARMADILLO_FOUND)
-    message(STATUS "Armadillo headers found: ${ARMADILLO_INCLUDE_DIRS}")
-  else ()
-    message( WARNING "To use the option USE_ML, Armadillo needs to be installed. Proceeding with USE_ML=OFF.")
-    set (USE_ML OFF)
+  if (NOT STATIC_BUILD)
+	  # Look for Armadillo headers.
+	  find_package(Armadillo)
+	  if (ARMADILLO_FOUND)
+		message(STATUS "Armadillo headers found: ${ARMADILLO_INCLUDE_DIRS}")
+	  else ()
+		message( WARNING "To use the option USE_ML, Armadillo needs to be installed. Proceeding with USE_ML=OFF.")
+		set (USE_ML OFF)
+	  endif()
   endif()
 endif()
 
@@ -108,11 +112,12 @@ include_directories(glucose/glucose)
 include_directories(aiger-1.9.9)
 include_directories(docopt)
 
+option(BUILD_PEDANT_EXECUTABLE "Build Pedant executable (switch off to only build library)." ON)
 
 add_subdirectory(src)
 
-option(BUILD_CERT_TOOLS "Build tools required for checking AIGER certificates" ON)
-if (BUILD_CERT_TOOLS)
+option(BUILT_CERT_TOOLS "Build tools required for checking AIGER certificates" ON)
+if (BUILT_CERT_TOOLS)
 	add_subdirectory(certification/AIG2CNF)
 	add_subdirectory(certification/AIG_Dependency_Checker)
 endif()

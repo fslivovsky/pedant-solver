@@ -17,6 +17,7 @@
 #include "logging.h"
 #include "configuration.h"
 #include "dependencycontainer.h"
+#include "solverdata.h"
 
 
 
@@ -24,7 +25,7 @@ namespace pedant {
 
 class SupportTracker {
  public:
-  SupportTracker(const std::vector<int>& universal_variables, const DependencyContainer& dependencies, int& last_used_variable, const Configuration& config);
+  SupportTracker(const std::vector<int>& universal_variables, const DependencyContainer& dependencies, int& last_used_variable, SolverData& shared_data, const Configuration& config);
   void setSatSolver(const std::shared_ptr<SatSolver> solver_);
   void addArbiterVariable(int arbiter_variable);
   void setNoForcedVariable(int variable, int no_forcing_clause_active_variable);
@@ -40,7 +41,7 @@ class SupportTracker {
   void setAlias(int variable, int alias);
   std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> computeSupport(const std::vector<int>& literals, int forced_variable, bool replace_initial=false);
 
-  void visualiseGraph(const std::vector<int>& literals, const std::vector<int>& mark, int forced_variable, bool replace_initial=false, bool invert_graph=false);
+  void visualiseGraph(const std::string& fname, const std::vector<int>& literals, const std::vector<int>& mark, int forced_variable, bool replace_initial=false, bool invert_graph=false);
 
  private:
   void printSupportEdges(int variable, const std::vector<int>& support);
@@ -80,7 +81,9 @@ class SupportTracker {
   std::unordered_map<int, int> cl_var;
   int& last_used_variable;
   int max_sat_encoding_variable = 1;
+  SolverData& shared_data;
   const Configuration& config;
+  unsigned int log_counter = 0;
 
 };
 

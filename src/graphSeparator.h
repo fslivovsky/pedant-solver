@@ -36,9 +36,9 @@ class GraphSeparator {
 
  public:
 
-
   static std::vector<int> getVertexSeparator( const std::vector<int>& vertices, const std::vector<std::pair<int,int>>& edges, 
-                                              const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden);
+                                              const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden,
+                                              const std::vector<int>& to_avoid);
 
   GraphSeparator() = delete;
   
@@ -74,28 +74,23 @@ class GraphSeparator {
    * This method alters the internal representation of the graph, 
    * so be aware when you reuse this class after the application of this method.
    **/
-  std::vector<int> getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden);
-
-  /**
-   * Computes a vertex separator for vertA and vertB
-   * 
-   * @param vertA A set of vertices. Must be vertices in the represented graph.
-   * @param vertB A set of vertices. Must be vertices in the represented graph and must be disjoint to vertA. 
-   * @param forbidden A set of vertices. The elements of forbidden shall not be contained in the computed vertex separator.
-   *      forbidden and vertB shall be disjoint -- without applying any restriction forbiding vertices could imply that there is no separator.
-   *      Must be contained in the set of vertices of the current graph.
-   * @param mutually_exclusive_vertices The computed separator shall contain maximally one element of this vector. 
-   *      It is the responsibility of the caller to ensure that such a separator exists.
-   *      forbidden and mutually_exclusive_vertices shall be disjoint
-   * 
-   * This method alters the internal representation of the graph, 
-   * so be aware when you reuse this class after the application of this method.
-   **/
-  std::vector<int> getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden, const std::vector<int>& mutually_exclusive_vertices);
+  std::vector<int> getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden, const std::vector<int>& to_avoid);
 
   Graph g;
   std::unordered_map<int,int> vertex_indices;
   const std::vector<int> vertex_names;
+
+  // if unpreferred vertices are sources and we use the boykov kolmogorov the capacities
+  // 1 / 2 / 3 would be find. But to increase stability we use 2 / 3 / 4
+  // This ensures that an unpreferred edge has priority over 2 normal edges.
+  // default capacity for an edge connecting an input and an output vertex
+  static constexpr int internal_capacity = 2;
+  // the internal edges of vertices that are allowed but not preferred get a higher capacity
+  static constexpr int unpreferred_capacity = 3;
+  // default capacity for an edge connection an output and an input vertex
+  static constexpr int external_capacity = 4;
+
+
   
   /**
    * @param source The source node.
@@ -130,20 +125,30 @@ class GraphSeparator {
 
   void addEdge(Traits::vertex_descriptor source, Traits::vertex_descriptor target, 
       boost::property_map<Graph,boost::edge_capacity_t>::type& capacity, 
-      boost::property_map<Graph,boost::edge_reverse_t>::type& reverse, int weight=1);
+      boost::property_map<Graph,boost::edge_reverse_t>::type& reverse, int weight = internal_capacity);
 
   void connectToSource(const std::vector<int>& to_connect, 
       std::vector<Traits::vertex_descriptor>& verts,
       boost::property_map < Graph, boost::edge_capacity_t >::type& capacity,
-      boost::property_map < Graph, boost::edge_reverse_t >::type& rev);
+      boost::property_map < Graph, boost::edge_reverse_t >::type& rev, unsigned int penalty);
   void connectToSink(const std::vector<int>& to_connect, 
       std::vector<Traits::vertex_descriptor>& verts,
       boost::property_map < Graph, boost::edge_capacity_t >::type& capacity,
       boost::property_map < Graph, boost::edge_reverse_t >::type& rev);
 
 
-
+  /** Debug Method
+   * This method saves the the graph g in the file graph.dot. 
+   * This output can then be visualised by the graphviz tool 
+   * (note: this only works if the graph is reasonably small)
+   **/
   void saveGraph();
+
+  /** Debug Method
+   * The boost max flow algorithm requires that for each edge also the reverse edge is contained in the graph.
+   * In the visualisation this causes unnecessary noise. 
+   * In this method we create a copy of the graph without the additional edges.
+   **/
   Graph trimGraph() const;
 
 };
@@ -160,6 +165,7 @@ inline void GraphSeparator::saveGraph() {
     name_strs.push_back(out_vertex);
   }
   name_strs.push_back("sink");
+  // boost::write_graphviz(file, g, boost::make_label_writer(&name_strs[0]));
   auto sg = trimGraph();
   boost::write_graphviz(file, sg, boost::make_label_writer(&name_strs[0]));
   file.close();
@@ -187,8 +193,5 @@ inline GraphSeparator::Graph GraphSeparator::trimGraph() const {
   }
   return simplified_graph;
 }
-
-
-
 
 }

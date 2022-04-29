@@ -6,9 +6,10 @@
 namespace pedant {
 
 std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vertices, const std::vector<std::pair<int,int>>& edges, 
-                                                    const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden) {
+                                                    const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden,
+                                                    const std::vector<int>& to_avoid) {
   GraphSeparator gP(vertices,edges);
-  std::vector<int> sep = gP.getVertexSeparator(vertA, vertB, forbidden);
+  std::vector<int> sep = gP.getVertexSeparator(vertA, vertB, forbidden, to_avoid);
   return sep;
 }
 
@@ -56,10 +57,11 @@ void GraphSeparator::addEdge(Traits::vertex_descriptor source, Traits::vertex_de
 void GraphSeparator::connectToSource(const std::vector<int>& to_connect,
     std::vector<Traits::vertex_descriptor>& verts,
     boost::property_map < Graph, boost::edge_capacity_t >::type& capacity,
-    boost::property_map < Graph, boost::edge_reverse_t >::type& rev) {
+    boost::property_map < Graph, boost::edge_reverse_t >::type& rev,
+    unsigned int penalty) {
   for (int v : to_connect) {
     int idx = vertex_indices[v];
-    addEdge(verts.front(), verts[idx], capacity, rev, 2);
+    addEdge(verts.front(), verts[idx], capacity, rev, penalty);
   }
 }
 
@@ -70,20 +72,33 @@ void GraphSeparator::connectToSink(const std::vector<int>& to_connect,
     boost::property_map < Graph, boost::edge_reverse_t >::type& rev) {
   for (int v : to_connect) {
     int idx = vertex_indices[v];
-    addEdge(verts[idx+1], verts.back(), capacity, rev, 2); //we want to cut internal edges thus we give the actual edges a higher capacity
+    addEdge(verts[idx+1], verts.back(), capacity, rev, external_capacity); //we want to cut internal edges thus we give the actual edges a higher capacity
   }
 }
 
 std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB) {
-  return getVertexSeparator(vertA, vertB, {});
+  return getVertexSeparator(vertA, vertB, {}, {});
 }
 
-std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden) {
+std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden, const std::vector<int>& unpreferred) {
   auto [vert_beg, vert_end] = vertices(g);
   std::vector<Traits::vertex_descriptor> verts(vert_beg,vert_end);
   auto capacity = get(boost::edge_capacity, g);
   auto rev = get(boost::edge_reverse, g);
-  connectToSource(vertA, verts, capacity, rev);
+  //Assuming unpreferred is empty the max flow is bounded from above by |vertA|*internal_capacity.
+  //Every path connecting the source with the sink has to pass through an internal edge of vertA.
+  //As these have capacity internal_capacity we get the bound.
+  //If we increase this value by one we can thus be sure that no edge with this capacity can be saturated
+  //(vertA and forbidden has to be disjoint)
+  int penalty = internal_capacity * vertA.size() + 1;
+  //If unpreferred is not empty then the value given above is not necessarily a bound.
+  //Thus, we have to increase it.
+  penalty += unpreferred.size();
+  //We never want to have an edge from the original graph (i.e. a non internal edge)
+  //in the edge separator. Usually, this is ensured by preceeding internal edges with a lower
+  //capacity. But in the case of the outgoing edges of the source there is no such internal edge,
+  //thus we have to apply the penalty.
+  connectToSource(vertA, verts, capacity, rev, penalty);
   connectToSink(vertB, verts, capacity, rev);
   //We know that every path from the source vertex to the sink vertex has to contain an element of vertB.
   //Morever, we know that in the used representation each vertex is represented by an in and an out vertex.
@@ -92,62 +107,27 @@ std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vert
   //This means that the maximal flow is at most vertB.size(). 
   //This means by applying a capacity of vertB.size()+1 we ensure that the edge will not be saturated.
   //So this edge will not be part of the edge-separator.
-  int penalty = vertA.size()+1;
   applyPenalties(forbidden,verts,capacity,penalty);
 
-  //We never want to have an edge from the original graph (i.e. a non internal edge)
-  //in the edge separator. Usually, this is ensured by preceeding internal edges with a lower
-  //capacity. But in the case of the outgoing edges of the source there is no such internal edge,
-  //thus we have to apply the penalty.
-  boost::graph_traits < Graph >::out_edge_iterator ei, e_end;
-  for (boost::tie(ei, e_end) = boost::out_edges(*vert_beg, g); ei != e_end; ++ei) {
-    capacity[*ei] = penalty;
-  }
+  //If we can swap an unpreferred vertex in the vertex separator with another
+  //vertex we want to do this as long as this does not increase the size of the separator.
+  //By using a higher capacity as for the "standard" internal edges the internal
+  //edges for the unpreferred are only used if they are really needed
+  applyPenalties(unpreferred, verts, capacity, unpreferred_capacity);
+
+
   // long flow = push_relabel_max_flow(g, verts.front(), verts.back()); Do not use this algorithm
   long flow = boykov_kolmogorov_max_flow(g, verts.front(), verts.back());
   // long flow = edmonds_karp_max_flow(g, verts.front(), verts.back());
 
   auto sep_edges = getSeparatingEdges(verts.front());
+  // saveGraph();//TEST:
   auto sep_verts = vertexSeparatorFromEdgeSeparator(sep_edges);
-  assert (sep_verts.size() == flow);
+  // assert (sep_verts.size() == flow); with unpreferred vertices this does not necessarily hold
   return sep_verts;
 }
 
 
-std::vector<int> GraphSeparator::getVertexSeparator(const std::vector<int>& vertA, const std::vector<int>& vertB, const std::vector<int>& forbidden, const std::vector<int>& mutually_exclusive_vertices) {
-  auto [vert_beg, vert_end] = vertices(g);
-  std::vector<Traits::vertex_descriptor> verts(vert_beg,vert_end);
-  auto capacity = get(boost::edge_capacity, g);
-  auto rev = get(boost::edge_reverse, g);
-  connectToSource(vertA, verts, capacity, rev);
-  connectToSink(vertB, verts, capacity, rev);
-  //By using the subsequent value as the capacity for the edges we want to forbid, we know that a cut in the internal edges of vertB is
-  //always better than a cut containing a forbidden vut.
-  int penalty = vertA.size()+1;
-
-  //the outgoing edges of the source also need to be assigned to the higher capacity
-  //otherwise they are the bottleneck for the flow.
-  boost::graph_traits < Graph >::out_edge_iterator ei, e_end;
-  for (boost::tie(ei, e_end) = boost::out_edges(*vert_beg, g); ei != e_end; ++ei) {
-    capacity[*ei] = penalty;
-  }
-  applyPenalties(forbidden,verts,capacity,penalty);
-  applyPenalties(mutually_exclusive_vertices,verts,capacity,penalty);
-  int flow = penalty;
-  std::vector<boost::detail::edge_desc_impl<boost::directed_tag, std::size_t>> sep_edges;
-  for (auto x : mutually_exclusive_vertices) {
-    removePenalty(x, verts, capacity);
-    int tmp = boykov_kolmogorov_max_flow(g, verts.front(), verts.back());
-    if (tmp<flow) {
-      flow = tmp;
-      sep_edges = getSeparatingEdges(verts.front());
-    }
-    applyPenalty(x, verts, capacity, penalty);
-  }
-  auto sep_verts = vertexSeparatorFromEdgeSeparator(sep_edges);
-  assert (sep_verts.size() == flow);
-  return sep_verts;
-}
 
 void GraphSeparator::applyPenalties(const std::vector<int>& forbidden, 
     std::vector<Traits::vertex_descriptor>& verts, 

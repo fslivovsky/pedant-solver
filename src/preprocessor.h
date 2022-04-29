@@ -1,5 +1,5 @@
-#ifndef PEDANT_PREPROCESSOR_H
-#define PEDANT_PREPROCESSOR_H
+#ifndef PEDANT_PREPROCESSOR_H_
+#define PEDANT_PREPROCESSOR_H_
 
 #include <vector>
 #include <tuple>
@@ -24,7 +24,7 @@ class Preprocessor {
 
  private:
 
-  int applyForallReduction(Clause& clause, const std::unordered_set<int>& universal_set, const std::unordered_set<int>& inermost_existentials,
+  int applyForallReduction(Clause& clause, const std::unordered_set<int>& universal_set, const std::unordered_set<int>& innermost_existentials,
       const std::unordered_map<int, std::unordered_set<int>>& dependency_map_set);
   
   const Configuration& config;

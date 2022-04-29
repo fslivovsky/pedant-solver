@@ -11,12 +11,16 @@ namespace pedant {
 //BaseDependencyContainer
 
 BaseDependencyContainer::BaseDependencyContainer( const Configuration& config, std::unordered_map<int, std::vector<int>>&& dependencies,
-                                                  const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables) :
-                                                  config(config), universal_variables(universal_variables), undefined_variables(undefined_variables), 
-                                                  dependencies(dependencies) {
+                                                  const std::unordered_set<int>& universal_variables,
+                                                  const std::vector<int>& ordered_universals) :
+                                                  config(config), universal_variables(universal_variables), 
+                                                  dependencies(dependencies), ordered_universals(ordered_universals) {
 }
 
 bool BaseDependencyContainer::hasDependencies(int var) const {
+  if (innermost_existentials.find(var) != innermost_existentials.end()) {
+    return true;
+  }
   return dependencies.find(var) != dependencies.end() && !dependencies.at(var).empty();
 }
 
@@ -29,7 +33,14 @@ void BaseDependencyContainer::setDependencies(int var, const std::vector<int>& d
   dependencies.emplace(var, deps);
 }
 
+void BaseDependencyContainer::addInnermostExistential(int var) {
+  innermost_existentials.insert(var);
+}
+
 const std::vector<int>& BaseDependencyContainer::getDependencies(int var) const {
+  if (innermost_existentials.find(var) != innermost_existentials.end()) {
+    return ordered_universals;
+  }
   return dependencies.at(var);
 }
 
@@ -59,9 +70,10 @@ std::vector<int> BaseDependencyContainer::restrictToVector(const std::vector<int
 
 DependencyContainer_Vector::DependencyContainer_Vector( const Configuration& config, std::unordered_map<int, std::vector<int>>&& dependencies, 
                                                         std::unordered_map<int, std::vector<int>>&& extended_dependencies,
-                                                        const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables) :
-                                                        BaseDependencyContainer(config, std::move(dependencies), undefined_variables, universal_variables),
-                                                        extended_dependencies_map(std::move(extended_dependencies)) {
+                                                        const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables,
+                                                        const std::vector<int>& ordered_universals) :
+                                                        BaseDependencyContainer(config, std::move(dependencies), universal_variables, ordered_universals),
+                                                        extended_dependencies_map(std::move(extended_dependencies)), undefined_variables(undefined_variables) {
   for (auto& [var, deps] : extended_dependencies_map) {
     std::sort(deps.begin(), deps.end());
   }
@@ -291,6 +303,10 @@ bool DependencyContainer_Vector::includedInDependencies(int var, const std::set<
     }
   }
   return true;
+}
+
+bool DependencyContainer_Vector::isUndefined(int var) const {
+  return undefined_variables.find(var) != undefined_variables.end();
 }
 
 

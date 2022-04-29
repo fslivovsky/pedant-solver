@@ -16,10 +16,10 @@ namespace pedant {
 
 SupportTracker::SupportTracker(const std::vector<int>& universal_variables,
     const DependencyContainer& dependencies, 
-    int& last_used_variable, const Configuration& config) : 
+    int& last_used_variable, SolverData& shared_data, const Configuration& config) : 
     universal_variables(universal_variables.begin(), universal_variables.end()), 
     dependencies(dependencies),
-    last_used_variable(last_used_variable), config(config) {
+    last_used_variable(last_used_variable), shared_data(shared_data), config(config) {
 }
 
 int SupportTracker::getForcedSource(const std::vector<int>& literals, bool replace_initial) {
@@ -58,6 +58,21 @@ int SupportTracker::getForcedSource(const std::vector<int>& literals, bool repla
   std::vector<int> universal_support_vector(universal_support.begin(), universal_support.end());
   DLOG(trace) << "Existential sources: " << existential_sources << ", universal: " << universal_support_vector << ", arbiters: " <<  arbiter_support << std::endl;
   auto [has_forcing_clause, _] = hasForcingClause(existential_sources);
+  // if arbiters are not allowed in forcing clauses, we check if we can replace them by the associated existential variables.
+  if (has_forcing_clause && !config.allow_arbiters_in_forcing_clauses) {
+    if (!config.replace_arbiters_in_separators) {
+      has_forcing_clause = false;
+    } else {
+      auto forced_candidate = var(getAlias(existential_sources.back()));
+      for (auto a : arbiter_support) {
+        auto existential = shared_data.arbiter_to_existential.at(a);
+        if (!dependencies.containedInExtendedDependencies(existential, forced_candidate)) {
+          has_forcing_clause = false;
+          break;
+        }
+      }
+    }
+  }
   DLOG(trace) << "Forcing clause exists? " << has_forcing_clause << std::endl;
   auto forced_variable = has_forcing_clause ? existential_sources.back() : 0;
   DLOG(trace) << "Forced variable: " << forced_variable << std::endl;
@@ -257,7 +272,6 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> SupportTracker:
     }
   }
 
-
   removeDuplicates(source_vertices);
 
   source_vertices.insert(source_vertices.end(),universals.begin(),universals.end());
@@ -294,9 +308,27 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> SupportTracker:
 
   vertices.insert(vertices.end(),source_vertices.begin(),source_vertices.end());
 
-  std::vector<int> sep = GraphSeparator::getVertexSeparator(vertices, edges, source_vertices, sink_vertices, forbidden_variables);
+  //By using the arbiters as unpreferred vertices, we indicate that we prefer the implied existential variables
+  std::vector<int> arbiter_vector;
+  if (config.replace_arbiters_in_separators) {
+    arbiter_vector.insert(arbiter_vector.end(), arbiters.begin(), arbiters.end());
+  }
+
+  std::vector<int> sep = GraphSeparator::getVertexSeparator(vertices, edges, source_vertices, sink_vertices, forbidden_variables, arbiter_vector);
+  // std::vector<int> sep = GraphSeparator::getVertexSeparator(vertices, edges, source_vertices, sink_vertices, forbidden_variables);
 
   sep.push_back(variable_to_include);
+
+  if (config.log_conflict_graphs) {
+    std::string filename;
+    if (replace_initial) {
+      filename = config.conflict_graph_log_dir + "cons_var_"+std::to_string(forced_variable)+"_idx_"+std::to_string(log_counter)+".dot";
+    } else {
+      filename = config.conflict_graph_log_dir + "val_var_"+std::to_string(forced_variable)+"_idx_"+std::to_string(log_counter)+".dot";
+    }
+    visualiseGraph(filename, literals, sep, forced_variable, replace_initial);
+    log_counter++;
+  }
 
   return filterLiterals(sep);
 }
@@ -355,9 +387,8 @@ std::tuple<bool, int> SupportTracker::hasForcingClause(std::vector<int>& assigne
  * blue filling forced variable
  * red filling: the existential is not in the extended dependencies of the forced variable
  **/
-void SupportTracker::visualiseGraph(const std::vector<int>& literals, const std::vector<int>& mark, int forced_variable, bool replace_initial, bool invert_graph) {
+void SupportTracker::visualiseGraph(const std::string& fname, const std::vector<int>& literals, const std::vector<int>& mark, int forced_variable, bool replace_initial, bool invert_graph) {
   std::unordered_set<int> to_mark (mark.begin(), mark.end());
-  std::string fname = "test.dot";
   std::ofstream out(fname);
   out << "digraph test {\n";
   std::unordered_set<int> existentials;

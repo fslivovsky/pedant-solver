@@ -13,7 +13,8 @@ enum DefaultStrategy {Values, Functions};
 struct Configuration {
   bool apply_dependency_schemes = true;
   bool apply_forall_reduction = true;
-  bool ignore_innnermost_existentials = false;
+  bool ignore_innermost_existentials = false;
+  bool check_definability_of_innermost_existentials = false;
   bool extended_dependencies = true;
   bool dynamic_dependencies = true;
   bool always_add_arbiter_clause = false;
@@ -21,7 +22,9 @@ struct Configuration {
   bool conditional_definitions = false;
   bool check_for_unates = false;
   bool use_forcing_clauses = true;
-  bool check_for_fcs_matrix = true;
+  bool check_for_fcs_matrix = false;
+  bool allow_arbiters_in_forcing_clauses = false;
+  bool replace_arbiters_in_separators = true;
 
 
   bool use_conflict_limit_unate_solver = false;
@@ -63,10 +66,10 @@ struct Configuration {
 
   bool use_existentials_in_tree = false;
   bool add_samples_for_arbiters = false;
-  int min_number_samples_in_node;
+  int min_number_samples_in_node = 5;
   bool use_max_number=true;
-  int max_number_samples_in_node;
-  int check_intervall;
+  int max_number_samples_in_node = 20;
+  int check_intervall = 5;
 
   bool return_default_tree = false;
   std::string write_default_tree_to = "";
@@ -75,12 +78,12 @@ struct Configuration {
   bool log_default_tree=false;
   std::string write_default_tree_log_to = "";
 
+  bool log_conflict_graphs = false;
+  std::string conflict_graph_log_dir = "";
+
   bool batch_learning_for_samples = false;
   bool use_sampling=false;
   int nof_samples;
-
-  bool restrictModel = false;
-  std::vector<int> restrictModelTo;
 
 };
 

@@ -2,6 +2,7 @@
 #include "dqdimacs.h"
 #include <algorithm>
 
+
 namespace pedant {
 
 DQDIMACS::DQDIMACS() : max_var(0), check_max_var(true) {
@@ -67,6 +68,23 @@ void DQDIMACS::addExplicitDependencies(int var, const std::vector<int>& dependen
   if (check_max_var) {
     max_var = std::max(max_var, var);
   }
+}
+
+void DQDIMACS::addDefinition(int var, std::vector<std::vector<int>>& definition_clauses, std::vector<std::tuple<std::vector<int>,int>>& definition_circuit) {
+  // definitions.emplace(var, definition_clauses, definition_circuit);
+  definitions[var] = std::tuple(definition_clauses, definition_circuit);
+}
+
+bool DQDIMACS::isDefined(int var) const {
+  return definitions.find(var) != definitions.end();
+}
+
+std::tuple<std::vector<std::vector<int>>, std::vector<std::tuple<std::vector<int>,int>>> DQDIMACS::getDefinition(int var) {
+  return definitions.at(var);
+}
+
+std::unordered_map<int, std::tuple<std::vector<std::vector<int>>, std::vector<std::tuple<std::vector<int>,int>>>>& DQDIMACS::getDefinitionMap() {
+  return definitions;
 }
 
 int DQDIMACS::getMaxVar() const {

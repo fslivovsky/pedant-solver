@@ -22,6 +22,7 @@
 #include "configuration.h"
 #include "defaultvaluecontainer.h"
 #include "dependencycontainer.h"
+#include "solverdata.h"
 
 namespace pedant {
 
@@ -43,7 +44,7 @@ class SkolemContainer {
 
  public:
   SkolemContainer(const std::vector<int>& universal_variables, const std::vector<int>& existential_variables, DependencyContainer& dependencies,
-                  int& last_used_variable, SimpleValidityChecker& validity_checker,const Configuration& config);
+                  int& last_used_variable, SimpleValidityChecker& validity_checker, SolverData& shared_data, const Configuration& config);
   void initValidityCheckModel();
   void initDefaultValues();
   void addForcingClause(Clause& forcing_clause, bool reduced);
@@ -82,8 +83,8 @@ class SkolemContainer {
   void addDefaultClause(int variable, Clause& clause, int use_default_variable);
   void intitDefaultContainer();
 
-
-  std::unordered_map<int, int> arbiter_to_existential;
+  SolverData& shared_data;
+  // std::unordered_map<int, int> arbiter_to_existential;
   std::unordered_map<int, Disjunction> arbiter_disjunction;
   std::unordered_map<int, int> arbiter_to_arbiter_active_variable;
   std::unordered_map<int, std::vector<int>> arbiter_to_annotation;

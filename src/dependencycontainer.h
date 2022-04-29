@@ -19,8 +19,11 @@ class BaseDependencyContainer {
 
  public:
 
-  BaseDependencyContainer( const Configuration& config, std::unordered_map<int, std::vector<int>>&& dependencies,
-                          const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables);
+  BaseDependencyContainer(const Configuration& config, std::unordered_map<int, std::vector<int>>&& dependencies,
+                          const std::unordered_set<int>& universal_variables,
+                          const std::vector<int>& ordered_universals);
+                    
+  void addInnermostExistential(int var);
 
   bool hasDependencies(int var) const;
   std::vector<int> restrictToDendencies(const std::vector<int>& literals, int var) const;
@@ -30,10 +33,11 @@ class BaseDependencyContainer {
  private:
   const Configuration& config;
   std::unordered_map<int, std::vector<int>> dependencies;
+  std::unordered_set<int> innermost_existentials;
+  std::vector<int> ordered_universals;
 
  protected:
   std::vector<int> restrictToVector(const std::vector<int>& literals, const std::vector<int>& range) const;
-  const std::set<int>& undefined_variables;
   const std::unordered_set<int>& universal_variables;
 
 };
@@ -45,7 +49,8 @@ class DependencyContainer_Vector : public BaseDependencyContainer {
  public:
   DependencyContainer_Vector(const Configuration& config, std::unordered_map<int, std::vector<int>>&& dependencies, 
                     std::unordered_map<int, std::vector<int>>&& extended_dependencies,
-                    const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables);
+                    const std::set<int>& undefined_variables, const std::unordered_set<int>& universal_variables,
+                    const std::vector<int>& ordered_universals);
 
   void updateExtendedDependencies(int var, const std::set<int>& support_set, std::set<int>& updated_variables);   
   void scheduleUpdate(int var, const std::set<int>& support_set, std::set<int>& updated_variables);      
@@ -61,6 +66,8 @@ class DependencyContainer_Vector : public BaseDependencyContainer {
   std::vector<int> restrictToExtendedDendencies(const std::vector<int>& literals, int var) const;
   std::vector<int> restrictToExtendedDendenciesSorted(const std::vector<int>& literals, int var) const;
 
+  bool isUndefined(int var) const;
+
  private:
   std::set<int> computeDynamicDependencies(int var) const;
   void updateVectorMap(int var, const std::vector<int>& variables_to_include);
@@ -71,6 +78,7 @@ class DependencyContainer_Vector : public BaseDependencyContainer {
   std::unordered_map<int, std::vector<int>> variables_to_update;
 
   std::unordered_map<int, std::vector<int>> extended_dependencies_map;
+  const std::set<int>& undefined_variables;
 
 };
 

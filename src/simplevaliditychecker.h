@@ -16,6 +16,7 @@
 #include "configuration.h"
 #include "supporttracker.h"
 #include "dependencycontainer.h"
+#include "solverdata.h"
 
 namespace pedant {
 
@@ -30,7 +31,7 @@ class SimpleValidityChecker {
                         const DependencyContainer& dependencies,
                         std::vector<Clause>& matrix,
                         int& last_used_variable,
-                        SkolemContainer& skolem_container, const Configuration& config);
+                        SkolemContainer& skolem_container, SolverData& shared_data, const Configuration& config);
   bool checkArbiterAssignment(std::vector<int>& arbiter_assignment);
   void setDefined(int variable);
   void addClauseValidityCheck(int variable, Clause& clause);
@@ -62,6 +63,7 @@ class SimpleValidityChecker {
   std::shared_ptr<SatSolver> conflict_extraction_solver;
   SkolemContainer& skolem_container;
   SupportTracker supporttracker;
+  SolverData& shared_data;
   const Configuration& config;
 };
 

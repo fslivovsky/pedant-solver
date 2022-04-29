@@ -22,10 +22,10 @@ class HoeffdingDefaultTree {
 
  public:
   HoeffdingDefaultTree(int variable, 
-      const DependencyContainer& dependencies,
+      const std::vector<int>& sample_space,
       std::vector<int>& assumptions, std::vector<int>& default_assumptions, 
       int& last_used_variable, const Configuration& config);
-  std::vector<Clause> insertConflict(int forced_literal,const std::vector<int>& universal_assignment);
+  std::vector<Clause> insertConflict(int forced_literal,const std::vector<int>& counterexample_sample);
   /**
    * Returns the clausal representation of the tree. 
    * For this purpose only clauses with an active selector are considered.

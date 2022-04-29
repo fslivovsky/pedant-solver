@@ -2,6 +2,7 @@
 #include <assert.h>
 
 #include "buildAIGER.h"
+#include "utils.h"
 
 #include <iostream>
 #include <cassert>
@@ -35,22 +36,23 @@ std::tuple<std::vector<Clause>,std::vector<Clause>> AIGERBuilder::filterClauses(
   return std::make_tuple(positive_clauses,negative_clauses);
 }
 
-bool AIGERBuilder::isConflictEntailed(const std::vector<int>& conflict,const std::vector<int>& arbiter_assignment) {
+bool AIGERBuilder::isConflictEntailed(const std::vector<int>& conflict,const std::unordered_map<int, bool>& arbiter_assignment) {
   for (int l:conflict) {
-    if (!std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),l)) {
+    if (arbiter_assignment.find(var(l)) != arbiter_assignment.end() && (l > 0) != arbiter_assignment.at(var(l))) {
       return false;
     }
   }
   return true;
 }
 
-std::pair<bool,Clause> AIGERBuilder::removeArbiters(const Clause& clause, const std::vector<int>& arbiter_assignment) {
+std::pair<bool,Clause> AIGERBuilder::removeArbiters(const Clause& clause, const std::unordered_map<int, bool>& arbiter_assignment) {
   Clause result;
   for (int l:clause) {
-    if (std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),l)) {
-      return std::make_pair(false,result);
-    }
-    if (!std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),-l)) {
+    if (arbiter_assignment.find(var(l)) != arbiter_assignment.end()) {
+      if ((l > 0) == arbiter_assignment.at(var(l))) {
+        return std::make_pair(false,result);
+      }
+    } else {
       result.push_back(l);
     }
   }
@@ -91,7 +93,7 @@ int AIGERBuilder::checkVariableInDefinition(int l) {
   return l;
 }
 
-bool AIGERBuilder::addDefinitionCircuitAdder(int defined_variable, const std::vector<int>& inputs, int gate_output, std::unordered_map<int,int>& gate_renaming, const std::vector<int>& arbiter_assignment) {
+bool AIGERBuilder::addDefinitionCircuitAdder(int defined_variable, const std::vector<int>& inputs, int gate_output, std::unordered_map<int,int>& gate_renaming, const std::unordered_map<int, bool>& arbiter_assignment) {
   assert (inputs.size()<=2);
   bool is_output_gate = defined_variable == abs(gate_output);
   assert (gate_output > 0 || (is_output_gate && inputs.empty()));
@@ -99,26 +101,30 @@ bool AIGERBuilder::addDefinitionCircuitAdder(int defined_variable, const std::ve
   std::vector<int> gate_inputs;
 
   for (auto in : inputs) {
-    if (std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),-in)) {
-      is_falsified = true;
-      break;
-    } else if (!std::binary_search(arbiter_assignment.begin(),arbiter_assignment.end(),in)) {
+    if (arbiter_assignment.find(var(in)) != arbiter_assignment.end()) {
+      // -in occurs in the assignment
+      if ( (in > 0) != arbiter_assignment.at(var(in))) {
+        is_falsified = true;
+        break;
+      }
+    } else { //in does not occur in the assignment
       if (gate_renaming.find(abs(in)) != gate_renaming.end()) {
-        in = in>0 ? gate_renaming.at(in) : -gate_renaming.at(in);
-        if (in == aiger_true) {
-          continue;
-        } 
-        if (in == aiger_false) {
-          is_falsified = true;
-          break;
+          in = in>0 ? gate_renaming.at(in) : -gate_renaming.at(in);
+          if (in == aiger_true) {
+            continue;
+          } 
+          if (in == aiger_false) {
+            is_falsified = true;
+            break;
+          }
+        } else {
+          int x = checkVariableInDefinition(in);
+          in = getAIGERRepresentation(x);
+          gate_inputs.push_back(in);
         }
-      } else {
-        int x = checkVariableInDefinition(in);
-        in = getAIGERRepresentation(x);
-        gate_inputs.push_back(in);
       }
     }
-  }
+
 
   if (is_output_gate) {
     if (is_falsified) {
@@ -152,7 +158,7 @@ bool AIGERBuilder::addDefinitionCircuitAdder(int defined_variable, const std::ve
   return false;
 }
 
-void AIGERBuilder::addDefinition(int variable_index, const DefCircuit& def, const std::vector<int>& arbiter_assignment) {
+void AIGERBuilder::addDefinition(int variable_index, const DefCircuit& def, const std::unordered_map<int, bool>& arbiter_assignment) {
   std::unordered_map<int, int> gate_renaming;
   int defined_variable = existential_variables[variable_index];
   for (auto& [adder,variable]:def) {
@@ -163,7 +169,7 @@ void AIGERBuilder::addDefinition(int variable_index, const DefCircuit& def, cons
 }
 
 void AIGERBuilder::addForcingClauses(int variable, const std::vector<Clause>& positive_forcing_clauses, const std::vector<Clause>& negative_forcing_clauses, 
-    std::vector<Clause>& default_clauses, const std::vector<int>& arbiter_assignment) {
+    std::vector<Clause>& default_clauses, const std::unordered_map<int, bool>& arbiter_assignment) {
   int var_representation = getAIGERRepresentation(variable);
   //If we have no default clause, we set the existential variable to true, whenever no forcing clause fires.
   if (default_clauses.size() <= 1) {
@@ -180,10 +186,12 @@ void AIGERBuilder::addForcingClauses(int variable, const std::vector<Clause>& po
     int positive_fires=getIsActiveCircuit(positive_forcing_clauses,arbiter_assignment);
     if (positive_fires == aiger_true) {
       aiger_add_and(circuit,var_representation, aiger_true, aiger_true);
+      return;
     } 
     int negative_fires=getIsActiveCircuit(negative_forcing_clauses,arbiter_assignment);
     if (negative_fires == aiger_true) {
       aiger_add_and(circuit,var_representation, aiger_false, aiger_false);
+      return;
     }
 
     auto [positive_default_clauses, negative_default_clauses] = filterClauses(default_clauses);
@@ -207,7 +215,7 @@ void AIGERBuilder::addForcingClauses(int variable, const std::vector<Clause>& po
 void AIGERBuilder::addSkolemFunction(int variable, const std::vector<DefCircuit>& definitions, const std::vector<std::vector<std::vector<int>>>& conditions, 
     const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& positive_forcing_clauses, 
     const std::vector<std::vector<Clause>>& negative_forcing_clauses, const std::unordered_map<int, std::vector<Clause>>& default_clauses_map, 
-    const std::vector<int>& arbiter_assignment) {
+    const std::unordered_map<int, bool>& arbiter_assignment) {
 
   int index=indices.at(variable);
   if (!definitions[index].empty()) {
@@ -234,7 +242,7 @@ void AIGERBuilder::addSkolemFunction(int variable, const std::vector<DefCircuit>
 void AIGERBuilder::computeCircuitRepresentation(const std::vector<DefCircuit>& definitions, const std::vector<std::vector<std::vector<int>>>& conditions, 
     const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& positive_forcing_clauses, 
     const std::vector<std::vector<Clause>>& negative_forcing_clauses, const std::unordered_map<int, std::vector<Clause>>& default_clauses_map, 
-    const std::vector<int>& arbiter_assignment) {
+    const std::unordered_map<int, bool>& arbiter_assignment) {
 
   for (int u:universal_variables) {
     aiger_add_input(circuit,getAIGERRepresentation(u),std::to_string(u).c_str());
@@ -245,23 +253,8 @@ void AIGERBuilder::computeCircuitRepresentation(const std::vector<DefCircuit>& d
   }
 }
 
-void AIGERBuilder::computeCircuitRepresentation(const std::vector<int>& variables_to_consider,
-    const std::vector<DefCircuit>& definitions, const std::vector<std::vector<std::vector<int>>>& conditions, 
-    const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& positive_forcing_clauses, 
-    const std::vector<std::vector<Clause>>& negative_forcing_clauses, 
-    const std::unordered_map<int, std::vector<Clause>>& default_clauses_map, const std::vector<int>& arbiter_assignment) {
 
-  for (int u:universal_variables) {
-    aiger_add_input(circuit,getAIGERRepresentation(u),std::to_string(u).c_str());
-  }
-  for (auto e : variables_to_consider) {
-    addSkolemFunction(e, definitions, conditions, conditional_def, positive_forcing_clauses, negative_forcing_clauses, default_clauses_map, arbiter_assignment);
-    aiger_add_output(circuit,getAIGERRepresentation(e),std::to_string(e).c_str());
-  }
-}
-
-
-int AIGERBuilder::getIsActiveCircuit(const std::vector<Clause>& clauses, const std::vector<int>& arbiter_assignment) {
+int AIGERBuilder::getIsActiveCircuit(const std::vector<Clause>& clauses, const std::unordered_map<int, bool>& arbiter_assignment) {
   std::vector<Clause> reduced_clauses;
   for (const Clause& cl:clauses) {
     auto [isActive,reduced] = removeArbiters(cl,arbiter_assignment);
@@ -354,23 +347,16 @@ bool AIGERBuilder::writeToFile(const std::string& filename,bool binary_mode,
       const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
       const std::vector<std::vector<Clause>>& neg_forcing_clause, 
       const std::unordered_map<int, std::vector<Clause>>& default_clauses, const std::vector<int>& arbiter_assignment) {
+  
+  std::unordered_map<int,bool> arbiter_assignment_map;
+  for (auto lit : arbiter_assignment) {
+    arbiter_assignment_map[var(lit)] = lit > 0;
+  }
 
   computeCircuitRepresentation(defs,conditions, conditional_def, pos_forcing_clauses, 
-      neg_forcing_clause, default_clauses, arbiter_assignment);
+      neg_forcing_clause, default_clauses, arbiter_assignment_map);
   return write(filename, binary_mode);
 }
-
-bool AIGERBuilder::writeToFile(const std::string& filename, bool binary_mode, const std::vector<int>& variables_to_consider, 
-    const std::vector<DefCircuit>& defs, const std::vector<std::vector<std::vector<int>>>& conditions, 
-    const std::vector<std::vector<DefCircuit>>& conditional_def, const std::vector<std::vector<Clause>>& pos_forcing_clauses, 
-    const std::vector<std::vector<Clause>>& neg_forcing_clause, const std::unordered_map<int, std::vector<Clause>>& default_clauses, 
-    const std::vector<int>& arbiter_assignment) {
-  
-  computeCircuitRepresentation(variables_to_consider, defs,conditions, conditional_def, pos_forcing_clauses, 
-      neg_forcing_clause, default_clauses, arbiter_assignment);
-  return write(filename, binary_mode);
-}
-
 
 
 }

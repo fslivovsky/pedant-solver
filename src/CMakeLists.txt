@@ -47,11 +47,16 @@ add_library(graphSeparator graphSeparator.h graphSeparator.cc)
 target_include_directories(graphSeparator PRIVATE ${Boost_INCLUDE_DIRS})
 target_link_libraries(graphSeparator PRIVATE ${Boost_LIBRARIES})
 
-add_library(parser dqdimacsparser.h dqdimacsparser.cc dqdimacs.h dqdimacs.cc)
+add_library(dqdimacs dqdimacs.h dqdimacs.cc)
+add_library(parser dqdimacsparser.h dqdimacsparser.cc)
 
 add_library(solver solver.h solver.cc)
 target_link_libraries(solver PUBLIC definabilitychecker simplevaliditychecker skolemcontainer unatechecker interrupt)
 
+if (BUILD_PEDANT_EXECUTABLE)
+	add_executable(pedant pedant.cc)
+	target_link_libraries(pedant PUBLIC solver parser preprocessor interrupt docopt_s dqdimacs)
+endif()
 
-add_executable(pedant pedant.cc)
-target_link_libraries(pedant PUBLIC solver parser preprocessor interrupt docopt_s)
+add_library(solverwrapper solverwrapper.h solverwrapper.cc)
+target_link_libraries(solverwrapper PUBLIC solver preprocessor interrupt docopt_s dqdimacs)

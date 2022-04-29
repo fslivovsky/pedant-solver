@@ -25,7 +25,7 @@
 
 
 static constexpr int VERSION_MAJOR = 2;
-static constexpr int VERSION_MINOR = 0;
+static constexpr int VERSION_MINOR = 1;
 static constexpr int VERSION_PATCH = 0;
 
 
@@ -36,6 +36,7 @@ Usage:
 General Options:
   -h --help                     Print this message.
   -v --version                  Print the version number.
+  --verbose=int                 Only has an effect in debug builds [default: 3]
 Solver Options:
   --rrs=bool                    Eliminiate dependencies with the RRS dependency scheme [default: true]
   --extended-dependencies=bool  Use extended dependencies [default: true]
@@ -45,6 +46,7 @@ Solver Options:
   --definitions=bool            Compute definitions [default: true]
   --always-add-arbiter=bool     Add arbiters in each iteration [default: false]
   --forcing-clauses=bool        Use forcing clauses (requires extended dependencies) [default: true]
+  --arbiters-fc=bool            Allow arbiters in forcing clauses [default: false]
   --fcs-matrix=bool             Extract forcing clauses from matrix [default: false]
   --unate-limit=int             Set the conflict limit for unate clause detection. [default: 2000]
   --no-conflict-limit-unates    Disable the conflict limit for unates.                  
@@ -53,6 +55,7 @@ Conflict Extraction Options:
   --support-strat=VAL           Strategy for the conflict extraction (core, minsep) 
                                 core: Unsat core of falsifying assignment
                                 minsep: Based on MaxFlow [default: minsep]
+  --replaceArbiters=bool       Try to replace arbiters with the associated existentials. [default: true]
 Background Sat Solver Options:  Supported Solvers (cadical, glucose)
   --sat-solver=VAL              Sets the default Sat solver [default: cadical]
   --arbitersolver=VAL           Set the SAT solver for the arbiter solver
@@ -66,6 +69,7 @@ Default Value Options:
                                 values: Use default values
                                 functions: Use default functions, (requires MLPack) [default: functions]
 Default Function Options:       Options for the construction of default functions.
+  --useExistentialsInDT=bool    Needs to be done. Take existential variables into account when constructing the default trees. [default: false]
   --maxValsPerNode=VAL          Maximal number of samples in a node in the default tree. 0 for using no limit [default: 20]
   --minValsPerNode=VAL          Minimal number of samples in a node in the default tree. Must not be larger than minValsPerNode [default: 5]
   --checkIntervall=VAL          Check after VAL new samples if a node shall be split. [default: 5]
@@ -77,8 +81,10 @@ Certificate Options:
 
 
 
-pedant::Configuration setConfigurations(std::map<std::string, docopt::value>& args);
-void checkConfiguration(pedant::Configuration& config);
+namespace pedant {
+
+Configuration setConfigurations(std::map<std::string, docopt::value>& args);
+void checkConfiguration(Configuration& config);
 bool checkArguments(std::map<std::string, docopt::value>& args);
 
 int main(int argc, char* argv[]) {
@@ -101,33 +107,33 @@ int main(int argc, char* argv[]) {
   if (!checkArguments(args)) {
     return 0;
   }
-  pedant::Configuration config = setConfigurations(args);
+  Configuration config = setConfigurations(args);
 
   checkConfiguration(config);
 
   switch (config.verbosity) {
     case 1:
-      pedant::Logger::get().setOutputLevel(pedant::Loglevel::trace);
+      Logger::get().setOutputLevel(Loglevel::trace);
       break;
     case 2:
-      pedant::Logger::get().setOutputLevel(pedant::Loglevel::info);
+      Logger::get().setOutputLevel(Loglevel::info);
       break;
     case 3:
-      pedant::Logger::get().setOutputLevel(pedant::Loglevel::error);
+      Logger::get().setOutputLevel(Loglevel::error);
       break;
   }
 
-  pedant::DQDIMACSParser parser;
+  DQDIMACSParser parser;
   try {
-    signal(SIGABRT, pedant::InterruptHandler::interrupt);
-    signal(SIGTERM, pedant::InterruptHandler::interrupt);
-    signal(SIGINT, pedant::InterruptHandler::interrupt);
-    pedant::DQDIMACS input = parser.parseFormula(filename);
-    pedant::Preprocessor preprocessor(input, config);
-    pedant::InputFormula formula = preprocessor.preprocess();
+    signal(SIGABRT, InterruptHandler::interrupt);
+    signal(SIGTERM, InterruptHandler::interrupt);
+    signal(SIGINT, InterruptHandler::interrupt);
+    DQDIMACS input = parser.parseFormula(filename);
+    Preprocessor preprocessor(input, config);
+    InputFormula formula = preprocessor.preprocess();
     
 
-    auto solver = pedant::Solver(formula, config);
+    auto solver = Solver(formula, config);
     int status = solver.solve();
     if (config.verbosity>0) {
       solver.printStatistics();
@@ -140,8 +146,9 @@ int main(int argc, char* argv[]) {
       std::cout << "UNKNOWN" << std::endl;
     }
     return status;
-  } catch (pedant::InvalidFileException& e) {
+  } catch (InvalidFileException& e) {
     std::cerr << "Error parsing " << filename << ": " << e.what() << std::endl;
+    return 1;
   }
 }
 
@@ -155,9 +162,12 @@ bool checkArguments(std::map<std::string, docopt::value>& args) {
   argument_constraints.push_back(make_unique<BoolConstraint>("--definitions"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--always-add-arbiter"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--forcing-clauses"));
+  argument_constraints.push_back(make_unique<BoolConstraint>("--arbiters-fc"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--fcs-matrix"));
-   
+  argument_constraints.push_back(make_unique<BoolConstraint>("--useExistentialsInDT"));
+  argument_constraints.push_back(make_unique<BoolConstraint>("--replaceArbiters"));
 
+  argument_constraints.push_back(make_unique<IntRangeConstraint>(1, 3, "--verbose"));
   argument_constraints.push_back(make_unique<IntRangeConstraint>(1, INT_MAX, "--unate-limit"));
   argument_constraints.push_back(make_unique<IntRangeConstraint>(1, INT_MAX, "--definition-limit"));
   argument_constraints.push_back(make_unique<IntRangeConstraint>(INT_MIN, INT_MAX, "--seed"));
@@ -195,20 +205,20 @@ bool isTrue(const std::string& val) {
   return val.compare("true")==0 || val.compare("1")==0;
 }
 
-void setSolver(pedant::SatSolverType& solver, const std::string& solver_to_use) {
+void setSolver(SatSolverType& solver, const std::string& solver_to_use) {
   if (solver_to_use.compare("cadical")==0) {
-    solver = pedant::Cadical;
+    solver = Cadical;
   } else if (solver_to_use.compare("glucose")==0) {
-    solver = pedant::Glucose;
+    solver = Glucose;
   } 
 }
 
-void setAllBackgroundSolvers(pedant::Configuration& config, const std::string& solver_to_use) {
-  pedant::SatSolverType solver;
+void setAllBackgroundSolvers(Configuration& config, const std::string& solver_to_use) {
+  SatSolverType solver;
   if (solver_to_use.compare("cadical")==0) {
-    solver = pedant::Cadical;
+    solver = Cadical;
   } else if (solver_to_use.compare("glucose")==0) {
-    solver = pedant::Glucose;
+    solver = Glucose;
   } 
 
   config.arbiter_solver = solver;
@@ -219,8 +229,8 @@ void setAllBackgroundSolvers(pedant::Configuration& config, const std::string& s
   config.unate_solver = solver;
 }
 
-pedant::Configuration setConfigurations(std::map<std::string, docopt::value>& args) {
-  pedant::Configuration config;
+Configuration setConfigurations(std::map<std::string, docopt::value>& args) {
+  Configuration config;
   if (args["--cnf"]) {
     config.extract_cnf_model=true;
     config.cnf_model_filename=args["--cnf"].asString();
@@ -248,8 +258,10 @@ pedant::Configuration setConfigurations(std::map<std::string, docopt::value>& ar
   config.definitions = isTrue(args["--definitions"].asString());
   config.check_for_unates = isTrue(args["--unates"].asString());
   config.use_forcing_clauses = isTrue(args["--forcing-clauses"].asString());
+  config.allow_arbiters_in_forcing_clauses = isTrue(args["--arbiters-fc"].asString());
   config.check_for_fcs_matrix = isTrue(args["--fcs-matrix"].asString());
 
+  config.verbosity = args["--verbose"].asLong();
   config.conflict_limit_definability_checker = args["--definition-limit"].asLong();
   config.conflict_limit_unate_solver = args["--unate-limit"].asLong();
 
@@ -284,16 +296,16 @@ pedant::Configuration setConfigurations(std::map<std::string, docopt::value>& ar
 
   std::string supp_strat = args["--support-strat"].asString();
   if (supp_strat.compare("core")==0) {
-    config.sup_strat = pedant::ConflictStrategy::Core;
+    config.sup_strat = ConflictStrategy::Core;
   } else if (supp_strat.compare("minsep")==0) {
-    config.sup_strat = pedant::ConflictStrategy::MinSeparator;
+    config.sup_strat = ConflictStrategy::MinSeparator;
   }
 
   std::string def_strat = args["--default-strat"].asString();
   if (def_strat.compare("values")==0) {
-    config.def_strat = pedant::DefaultStrategy::Values;
+    config.def_strat = DefaultStrategy::Values;
   } else if (def_strat.compare("functions")==0) {
-    config.def_strat = pedant::DefaultStrategy::Functions;
+    config.def_strat = DefaultStrategy::Functions;
   }
 
 
@@ -302,20 +314,29 @@ pedant::Configuration setConfigurations(std::map<std::string, docopt::value>& ar
   config.min_number_samples_in_node = args["--minValsPerNode"].asLong();
   config.check_intervall  = args["--checkIntervall"].asLong();
 
+  config.use_existentials_in_tree = isTrue(args["--useExistentialsInDT"].asString());
 
+  config.replace_arbiters_in_separators = isTrue(args["--replaceArbiters"].asString());
+  
   return config;
 }
 
-void checkConfiguration(pedant::Configuration& config) {
+void checkConfiguration(Configuration& config) {
 
-  if (!config.extended_dependencies && config.dynamic_dependencies) {
-    std::cerr<<"Dynamic dependencies can only be used together with extended dependencies!"<<std::endl;
-    config.dynamic_dependencies = false;
-  }
+  if (!config.extended_dependencies) {
+    if (config.dynamic_dependencies) {
+      std::cerr<<"Dynamic dependencies can only be used together with extended dependencies!"<<std::endl;
+      config.dynamic_dependencies = false;
+    }
 
-  if (!config.extended_dependencies && config.use_forcing_clauses) {
-    std::cerr<<"Forcing clauses can only be used together with extended dependencies!"<<std::endl;
-    config.use_forcing_clauses = false;
+    if (config.use_forcing_clauses) {
+      std::cerr<<"Forcing clauses can only be used together with extended dependencies!"<<std::endl;
+      config.use_forcing_clauses = false;
+    }
+
+    if (config.sup_strat == ConflictStrategy::MinSeparator) {
+      std::cerr<<"Warning: Without extended dependencies separators can only consist of sources."<<std::endl;
+    }
   }
 
   if (!config.use_forcing_clauses && config.check_for_fcs_matrix) {
@@ -326,9 +347,9 @@ void checkConfiguration(pedant::Configuration& config) {
 
 
   #ifndef USE_MACHINE_LEARNING
-    if (config.def_strat == pedant::DefaultStrategy::Functions) {
+    if (config.def_strat == DefaultStrategy::Functions) {
       std::cerr<<"To use the default functions, the solver must be compiled with support for MLPack!"<<std::endl;
-      config.def_strat = pedant::DefaultStrategy::Values;
+      config.def_strat = DefaultStrategy::Values;
     }
   #endif
 
@@ -342,4 +363,10 @@ void checkConfiguration(pedant::Configuration& config) {
     config.incremental_definability_max_iterations = 1;
   }
 
+}
+
+}
+
+int main(int argc, char* argv[]) {
+  return pedant::main(argc, argv);
 }

@@ -19,12 +19,15 @@
 #include "configuration.h"
 #include "interrupt.h"
 #include "dependencycontainer.h"
+#include "solverdata.h"
 
 
 namespace pedant {
 
 class Solver {
  public:
+  //No guarantee for the state of formula after the constructor application is given.
+  //formula may only contain definitions for innermost existential variables
   Solver( InputFormula& formula, Configuration& config);
   int solve();
   int newVariable();
@@ -36,9 +39,9 @@ class Solver {
   bool analyzeConflict( const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, 
                         const std::vector<int>& failed_arbiters, const std::vector<int>& complete_universal_assignment, 
                         const std::vector<int>& complete_existential_assignment);
-  void analyzeForcingConflict(int forced_literal, const std::vector<int> failed_existentials, const std::vector<int>& failed_universals);
+  void analyzeForcingConflict(int forced_literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, const std::vector<int>& failed_arbiters);
   bool findArbiterAssignment();
-  std::tuple<Clause, bool> getForcingClause(int literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals);
+  std::tuple<Clause, bool> getForcingClause(int literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, const std::vector<int>& failed_arbiters);
   void addForcingClause(Clause& forcing_clause, bool reduced);
   template<typename T> void checkDefined(T variables_to_check, const std::vector<int>& assumptions, bool use_extended_dependencies, int conflict_limit);
   void addDefinition(int variable, std::vector<Clause>& definition, const std::vector<std::tuple<std::vector<int>,int>>& definition_circuit, std::vector<int>& conflict, bool reduced = false);
@@ -57,11 +60,12 @@ class Solver {
   void updateDynamicDependencies(int var, std::set<int>& support_set, std::set<int>& updated_variables);
 
   void processInnermostExistentials(int start_index_block, int end_index_block);
+  void processGivenDefinitions(std::unordered_map<int, std::tuple<std::vector<Clause>, Circuit>>& definitions);
 
   int last_used_variable;
+  SolverData shared_data;
   std::vector<int> arbiter_assignment;
   std::vector<int> arbiter_variables;
-  std::unordered_map<int, int> arbiter_to_existential;
   std::unordered_map<int, int> arbiter_to_index;
   std::vector<int> existential_variables;
   std::vector<int> innermost_existentials;

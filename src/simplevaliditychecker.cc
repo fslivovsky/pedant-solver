@@ -15,9 +15,9 @@ SimpleValidityChecker::SimpleValidityChecker(
     const DependencyContainer& dependencies,
     std::vector<Clause>& matrix, 
     int& last_used_variable,
-    SkolemContainer& skolem_container, const Configuration& config): 
+    SkolemContainer& skolem_container, SolverData& shared_data, const Configuration& config): 
     existential_variables(existentials), universal_variables(universal_variables), matrix(matrix), last_used_variable(last_used_variable), 
-    skolem_container(skolem_container), supporttracker(universal_variables, dependencies, last_used_variable, config), config(config) {
+    skolem_container(skolem_container), supporttracker(universal_variables, dependencies, last_used_variable, shared_data, config), shared_data(shared_data), config(config) {
   std::sort(existential_variables.begin(), existential_variables.end());
   validity_check_solver = giveSolverInstance(config.validity_solver);
   conflict_extraction_solver = giveSolverInstance(config.conflict_solver);

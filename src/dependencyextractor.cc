@@ -9,13 +9,22 @@ namespace pedant {
 
 DependencyExtractor::DependencyExtractor(DQDIMACS& formula, const Configuration& config) :
      max_variable_in_matrix(formula.getMaxVar()),config(config), formula(formula) {
-  bool ignore_innermost_existential_block = config.ignore_innnermost_existentials && !formula.lastBlockType();
+  bool ignore_innermost_existential_block = config.ignore_innermost_existentials && !formula.lastBlockType();
   existential_block_idx_end = ignore_innermost_existential_block ? formula.getNofExistentialBlocks() - 1 : formula.getNofExistentialBlocks();
 }
 
 
 void DependencyExtractor::computeDependencies() {
   auto& universal_variables = formula.getUniversals();
+
+  if (universal_variables.empty()) { //There are no universal variables in the given formula
+    auto all_existentials = formula.getAllExistentials();
+    for (auto& e : all_existentials) {
+      original_dependency_map[e] = {};
+    }
+    return;
+  }
+
   const auto& existential_variables = formula.getExistentials();
   const auto& universal_blocks = formula.getUniversalBlocks();
   const auto& existential_blocks = formula.getExistentialBlocks();
@@ -45,8 +54,21 @@ void DependencyExtractor::computeDependencies() {
 
 std::unordered_map<int, std::vector<int>> DependencyExtractor::computeExtendedDependencies() {
   std::unordered_map<int, std::vector<int>> extended_dependencies;
-
   auto& universal_variables = formula.getUniversals();
+
+  if (universal_variables.empty()) { //There are no universal variables in the given formula
+    auto all_existentials = formula.getAllExistentials();
+    std::sort(all_existentials.begin(), all_existentials.end());
+    std::vector<int> visited_existentials;
+    visited_existentials.reserve(all_existentials.size());
+    for (auto& e : all_existentials) {
+      original_dependency_map[e] = {};
+      extended_dependencies[e] = visited_existentials;
+      visited_existentials.push_back(e);
+    }
+    return extended_dependencies;
+  }
+
   auto& existential_variables = formula.getExistentials();
   const auto& universal_blocks = formula.getUniversalBlocks();
   const auto& existential_blocks = formula.getExistentialBlocks();

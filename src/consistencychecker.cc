@@ -11,10 +11,10 @@
 namespace pedant {
 
 ConsistencyChecker::ConsistencyChecker( const DependencyContainer& dependencies, const std::vector<int>& existential_variables,
-                                        const std::vector<int>& universal_variables, int& last_used_variable, const Configuration& config) : 
+                                        const std::vector<int>& universal_variables, int& last_used_variable, SolverData& shared_data,  const Configuration& config) : 
                                         existential_variables_set(existential_variables.begin(), existential_variables.end()), universal_variables(universal_variables), 
-                                        last_used_variable(last_used_variable), config(config), 
-                                        supporttracker(universal_variables, dependencies, last_used_variable, config), dependencies(dependencies) {
+                                        last_used_variable(last_used_variable), shared_data(shared_data), config(config), 
+                                        supporttracker(universal_variables, dependencies, last_used_variable, shared_data, config), dependencies(dependencies) {
   consistency_solver = giveSolverInstance(config.consistency_solver);
   supporttracker.setSatSolver(consistency_solver);
   // Create ordered map to ensure deterministic order of iteration.
@@ -99,6 +99,7 @@ void ConsistencyChecker::addAssumption(const std::vector<int>& assumptions) {
 }
 
 
+
 bool ConsistencyChecker::checkConsistency(const std::vector<int>& arbiter_assumptions, std::vector<int>& existential_counterexample, 
     std::vector<int>& universal_counterexample, std::vector<int>& arbiter_counterexample, std::vector<int>& complete_universal_counterexample) {
   consistency_solver->assume(disjunction_terminals);
@@ -109,16 +110,34 @@ bool ConsistencyChecker::checkConsistency(const std::vector<int>& arbiter_assump
 
   bool consistent = (result == 20);
   if (!consistent) {
-    DLOG(trace) << "Model of inconsistency check: " << consistency_solver->getModel() << std::endl;
-    universal_counterexample = consistency_solver->getValues(universal_variables);
-    DLOG(trace) << "Universal counterexample: " << universal_counterexample << std::endl;
+    #ifndef NDEBUG //If Loggig is disabled we do not need to compute these assignments
+      DLOG(trace) << "Model of inconsistency check: " << consistency_solver->getModel() << std::endl;
+      universal_counterexample = consistency_solver->getValues(universal_variables);
+      DLOG(trace) << "Universal counterexample: " << universal_counterexample << std::endl;
+    #endif
     auto conflicted_variable = getInconsistentExistentialVariable();
 
     if (config.sup_strat == Core) {
+      #ifdef NDEBUG
+        universal_counterexample = consistency_solver->getValues(universal_variables);
+      #endif
       arbiter_counterexample = consistency_solver->getValues(arbiter_assumptions);
       complete_universal_counterexample = universal_counterexample;
       auto existential_dependencies = dependencies.getExistentialDependencies(conflicted_variable);//not very efficient
-      existential_counterexample = consistency_solver->getValues(existential_dependencies);
+
+      std::for_each(existential_dependencies.begin(), existential_dependencies.end(), [this](int &variable){ 
+        auto& v_data = variable_data.at(variable);
+        variable = v_data.literal_variables[true];
+      });
+      auto existential_counterexample_translated = consistency_solver->getValues(existential_dependencies);
+      std::for_each(existential_counterexample_translated.begin(), existential_counterexample_translated.end(), 
+        [this](int &lit) { 
+          int variable = lit > 0 ? lit : -lit - 1;
+          lit = literal_variable_to_literal[variable];
+      });
+      existential_counterexample.clear();
+      std::copy_if (existential_counterexample_translated.begin(), existential_counterexample_translated.end(), std::back_inserter(existential_counterexample), 
+        [this](int lit){return dependencies.isUndefined(var(lit));} );
       return consistent;
     }
 

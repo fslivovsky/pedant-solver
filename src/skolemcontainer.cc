@@ -12,14 +12,14 @@ namespace pedant {
 SkolemContainer::SkolemContainer(const std::vector<int>& universal_variables, 
       const std::vector<int>& existential_variables,
       DependencyContainer& dependencies,
-      int& last_used_variable, SimpleValidityChecker& validity_checker, const Configuration& config) : 
+      int& last_used_variable, SimpleValidityChecker& validity_checker, SolverData& shared_data, const Configuration& config) : 
       last_used_variable(last_used_variable), bernoulli(0, 1), 
       universal_variables(universal_variables), existential_variables(existential_variables),
       undefined_existentials(existential_variables.begin(), existential_variables.end()),
       current_model(existential_variables,universal_variables, default_values, config),
       consistencychecker(dependencies, 
-          existential_variables, universal_variables, last_used_variable,config),
-      validity_checker(validity_checker), config(config),
+          existential_variables, universal_variables, last_used_variable, shared_data, config),
+      validity_checker(validity_checker), shared_data(shared_data), config(config),
       default_values(universal_variables, existential_variables, dependencies, 
           last_used_variable,validity_check_assumptions, config),
       dependencies(dependencies) {
@@ -200,14 +200,16 @@ int SkolemContainer::createArbiter(int existential_variable, const std::vector<i
   std::sort(annotation_copy.begin(), annotation_copy.end());
   arbiter_to_annotation[new_arbiter] = annotation_copy;
   DLOG(trace) << "Creating new arbiter " << new_arbiter << " for variable " << existential_variable << " and annotation " << annotation_copy << std::endl;
-  arbiter_to_existential[new_arbiter] = existential_variable;
+  // arbiter_to_existential[new_arbiter] = existential_variable;
+  shared_data.arbiter_to_existential[new_arbiter] = existential_variable;
   existential_arbiter_map[existential_variable][annotation_copy] = new_arbiter;
   return new_arbiter;
 }
 
 void SkolemContainer::realizeArbiter(int arbiter) {
   DLOG(trace) << "Realizing arbiter: " << arbiter << std::endl;
-  auto existential_variable = arbiter_to_existential[arbiter];
+  // auto existential_variable = arbiter_to_existential[arbiter];
+  auto existential_variable = shared_data.arbiter_to_existential[arbiter];
   consistencychecker.addArbiterVariable(existential_variable, arbiter);
   validity_checker.addArbiterVariable(arbiter); // For support tracker.
   // Add clauses linking arbiter and existential variable.

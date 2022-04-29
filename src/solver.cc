@@ -15,31 +15,37 @@ namespace pedant {
 
 
 Solver::Solver( InputFormula& formula, Configuration& config) :
-                last_used_variable(0), universal_variables(std::move(formula.universal_variables)),
+                last_used_variable(formula.max_used_variable), universal_variables(std::move(formula.universal_variables)),
                 universal_variables_set(universal_variables.begin(), universal_variables.end()),
                 existential_variables(std::move(formula.existential_variables)),
-                undefined_variables(existential_variables.begin(), formula.innermost_existential_block_present ? existential_variables.begin() + formula.start_index_innnermost_existentials : existential_variables.end()),
+                undefined_variables(existential_variables.begin(), formula.innermost_existential_block_present ? existential_variables.begin() + formula.start_index_innermost_existentials : existential_variables.end()),
                 // undefined_variables(existential_variables.begin(), existential_variables.end()),
-                dependencies(config, std::move(formula.dependencies), std::move(formula.extended_dependenices), undefined_variables, universal_variables_set),
+                dependencies(config, std::move(formula.dependencies), std::move(formula.extended_dependenices), undefined_variables, universal_variables_set, universal_variables),
                 matrix(std::move(formula.matrix)), config(config), preprocessing_done(false), 
                 definabilitychecker(universal_variables, existential_variables, matrix, last_used_variable, config, false), 
                 variables_defined_by_universals(universal_variables.begin(), universal_variables.end()), 
                 validitychecker(existential_variables, universal_variables, 
                   dependencies,
-                  matrix, last_used_variable, skolemcontainer, config), 
+                  matrix, last_used_variable, skolemcontainer, shared_data, config), 
                 skolemcontainer(universal_variables, existential_variables,
                   dependencies, 
-                  last_used_variable, validitychecker, config) {
+                  last_used_variable, validitychecker, shared_data, config) {
   arbiter_solver = giveSolverInstance(config.arbiter_solver);
+
+
   if (formula.innermost_existential_block_present) {
-    processInnermostExistentials(formula.start_index_innnermost_existentials, formula.end_index_innnermost_existentials);
+    // The variables with explicit dependencies also need to be set to undefined
+    for (auto it = existential_variables.begin() + formula.end_index_innermost_existentials; it != existential_variables.end(); it++) {
+      undefined_variables.insert(*it);
+    }
+    processGivenDefinitions(formula.definitions);
+    processInnermostExistentials(formula.start_index_innermost_existentials, formula.end_index_innermost_existentials);
   } 
   std::sort(existential_variables.begin(), existential_variables.end());
   std::sort(universal_variables.begin(), universal_variables.end());
-  auto max_existential = existential_variables.empty() ? 0 : existential_variables.back();
-  auto max_universal = universal_variables.empty() ? 0 : universal_variables.back();
-  last_used_variable = std::max({ maxVarIndex(matrix), max_existential, max_universal, last_used_variable });
-  skolemcontainer.initDefaultValues();
+  // auto max_existential = existential_variables.empty() ? 0 : existential_variables.back();
+  // auto max_universal = universal_variables.empty() ? 0 : universal_variables.back();
+  // last_used_variable = std::max({ maxVarIndex(matrix), max_existential, max_universal, last_used_variable });
   for (auto variable : existential_variables) {
     arbiter_counts[variable] = 0;
   }
@@ -55,7 +61,7 @@ int Solver::solve() {
     int unchecked_iterations = 0;
     
     if (config.definitions) {
-      if (config.ignore_innnermost_existentials && !innermost_existentials.empty()) {
+      if (config.ignore_innermost_existentials && !innermost_existentials.empty()) {
         //We do not want to look again for definitions for variables where we previously did not find definitions
         std::set<int> to_check1;
         std::set_difference(undefined_variables.begin(), undefined_variables.end(), innermost_existentials.begin(), innermost_existentials.end(), std::inserter(to_check1, to_check1.begin()));
@@ -71,6 +77,9 @@ int Solver::solve() {
     if (config.check_for_unates) {
       checkUnates();
     }
+    //We do not need default values for defined variables. 
+    //Especially if we use extended dependencies in the default trees it is necessary to only consider the undefined variables in order to reduce the memory consumption.
+    skolemcontainer.initDefaultValues();
     if (config.check_for_fcs_matrix) {
       forcingClausesFromMatrix();
     }
@@ -100,6 +109,7 @@ int Solver::solve() {
       }
       solver_stats.conflicts++;
       auto [failing_existential_assignment, failing_universal_assignment, failing_arbiter_assignment, complete_universal_assignment, complete_existential_assignment] = validitychecker.getConflict();
+
       if (analyzeConflict(failing_existential_assignment, failing_universal_assignment, failing_arbiter_assignment, complete_universal_assignment, complete_existential_assignment)) {
         unchecked_iterations++;
         if (unchecked_iterations % 600 == 0) {
@@ -132,14 +142,16 @@ void Solver::forcingClausesFromMatrix() {
       }
     }
     auto [has_forcing_clause, forced_literal] = hasForcingClause(existentials_in_clause);
-    if (has_forcing_clause) {
+    bool addClause = has_forcing_clause && undefined_variables.find(var(forced_literal)) != undefined_variables.end();
+    if (addClause) {
       found++;
       skolemcontainer.setPolarity(var(forced_literal),forced_literal>0);
       negateEach(existentials_in_clause);
       negateEach(universals_in_clause);
       DLOG(trace) << "Failing existential assignment: " << existentials_in_clause << std::endl
                   << "Failing universal assignment: " << universals_in_clause << std::endl;
-      analyzeForcingConflict(-forced_literal, existentials_in_clause, universals_in_clause);
+      std::vector<int> failed_arbiters;
+      analyzeForcingConflict(-forced_literal, existentials_in_clause, universals_in_clause, failed_arbiters);
     }
   }
   std::cerr << found << " out of " << matrix.size() << " clauses are forcing clauses. " << std::endl;
@@ -161,14 +173,15 @@ bool Solver::findArbiterAssignment() {
   }
 }
 
-std::tuple<Clause, bool> Solver::getForcingClause(int literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals) {
-  auto forced_variable = var(literal);
+std::tuple<Clause, bool> Solver::getForcingClause(int literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, const std::vector<int>& failed_arbiters) {
+auto forced_variable = var(literal);
   auto forcing_clause = failed_existentials;
   forcing_clause.insert(forcing_clause.end(), failed_universals.begin(), failed_universals.end());
   forcing_clause = dependencies.restrictToExtendedDendencies(forcing_clause, forced_variable);//TODO: fix error forcing clauses is not sorted -> method is not applicable
+  bool reduced = forcing_clause.size() < (failed_existentials.size() + failed_universals.size());
+  forcing_clause.insert(forcing_clause.end(), failed_arbiters.begin(), failed_arbiters.end());
   negateEach(forcing_clause);
   forcing_clause.push_back(literal);
-  bool reduced = forcing_clause.size() < (failed_existentials.size() + failed_universals.size());
   return std::make_tuple(forcing_clause, reduced);
 }
 
@@ -270,19 +283,20 @@ std::tuple<int, bool> Solver::getArbiter(int existential_literal, const std::vec
     arbiter_counts[existential_variable]++;
     arbiter_to_index[arbiter] = arbiter_variables.size();
     arbiter_variables.push_back(arbiter);
-    arbiter_to_existential[arbiter] = existential_variable;
+    // shared_data.arbiter_to_existential[arbiter] = existential_variable;
     arbiter_assignment.push_back(arbiter_literal);
   }
   return std::make_tuple(arbiter_literal, is_new);
 }
 
 
-void Solver::analyzeForcingConflict(int forced_literal, const std::vector<int> failed_existentials, const std::vector<int>& failed_universals) {
+void Solver::analyzeForcingConflict(int forced_literal, const std::vector<int>& failed_existentials, const std::vector<int>& failed_universals, const std::vector<int>& failed_arbiters) {
   if (preprocessing_done) {
     solver_stats.linear_conflicts++;
   }
 
-  auto [forcing_clause, reduced] = getForcingClause(-forced_literal, failed_existentials, failed_universals);
+  auto [forcing_clause, reduced] = getForcingClause(-forced_literal, failed_existentials, failed_universals, failed_arbiters);
+
   auto forced_variable = var(forced_literal);
   bool add_forcing_clause = config.use_forcing_clauses;
   // Consider the definition under the conflicting assignment.
@@ -324,10 +338,10 @@ bool Solver::analyzeConflict( const std::vector<int>& failed_existentials, const
   solver_stats.existential_conflict_literals += failed_existentials.size();
   solver_stats.universal_conflict_literals += failed_universals.size();
   solver_stats.arbiter_conflict_literals += failed_arbiters.size();
-  auto [has_forcing_clause, forced_literal] = failed_arbiters.empty() ? hasForcingClause(failed_existentials) : std::make_tuple(false, 0);
+  auto [has_forcing_clause, forced_literal] = config.allow_arbiters_in_forcing_clauses || failed_arbiters.empty() ? hasForcingClause(failed_existentials) : std::make_tuple(false, 0);
   if (has_forcing_clause) {
     if (config.use_forcing_clauses || config.conditional_definitions) {
-      analyzeForcingConflict(forced_literal, failed_existentials, failed_universals);
+      analyzeForcingConflict(forced_literal, failed_existentials, failed_universals, failed_arbiters);
     }
     if (!config.always_add_arbiter_clause) {
       insertIntoDefaultContainer(-forced_literal,complete_universal_assignment,complete_existential_assignment);
@@ -409,17 +423,15 @@ void Solver::setDefaultValuesFromResponse(const std::vector<int>& universal_assi
 
 void Solver::insertIntoDefaultContainer(int forced_literal, const std::vector<int>& universal_assignment, const std::vector<int>& existential_assignment) {
   if (config.use_existentials_in_tree) {
-    skolemcontainer.insertIntoDefaultContainer(-forced_literal,universal_assignment, existential_assignment);
+    skolemcontainer.insertIntoDefaultContainer(forced_literal,universal_assignment, existential_assignment);
   } else {
-    skolemcontainer.insertIntoDefaultContainer(-forced_literal,universal_assignment);
+    skolemcontainer.insertIntoDefaultContainer(forced_literal,universal_assignment);
   }
 }
 
 
 void Solver::processInnermostExistentials(int start_index_block, int end_index_block) {
-  for (auto it = existential_variables.begin() + end_index_block; it != existential_variables.end(); it++) {
-    undefined_variables.insert(*it);
-  }
+
   std::vector<int> dependency_vector(universal_variables.begin(), universal_variables.end());
   innermost_existentials.insert(innermost_existentials.end(), existential_variables.begin() + start_index_block, existential_variables.begin() + end_index_block);
   if (config.extended_dependencies) {
@@ -440,6 +452,9 @@ void Solver::processInnermostExistentials(int start_index_block, int end_index_b
 
   std::set<int> to_preocess_set;
   for (auto variable : innermost_existentials) {
+    if (undefined_variables.find(variable) == undefined_variables.end()) {
+      continue; //we already added a definition for the variable
+    }
     bool defined = config.definitions;
     if (config.definitions) {
       auto [def, conflict] = definabilitychecker.checkDefinability(dependency_vector, variable, arbiter_assignment, config.conflict_limit_definability_checker + 1);
@@ -460,10 +475,14 @@ void Solver::processInnermostExistentials(int start_index_block, int end_index_b
     }
     if (!defined) {
       undefined_variables.insert(variable);
-      dependencies.setDependencies(variable, universal_variables);
+      dependencies.addInnermostExistential(variable);
+      // dependencies.setDependencies(variable, universal_variables);
       dependencies.setExtendedDependencies(variable, dependency_set_2);
     } else {
-      dependencies.setDependencies(variable, universal_variables);
+      //Even if the variable is defined we may introduce arbiters for this variable
+      //Thus we need the dependencies.
+      // dependencies.setDependencies(variable, universal_variables);
+      dependencies.addInnermostExistential(variable);
     }
     if (config.extended_dependencies) {
       dependency_vector.push_back(variable);
@@ -472,6 +491,33 @@ void Solver::processInnermostExistentials(int start_index_block, int end_index_b
     }
     nof_processed++;
     std::cerr << "Processed: " << nof_processed << "out of " << nof_variables_to_check << " -- nof definitions: " << definitions_found << ".\r";
+  }
+  dependencies.performUpdate();
+}
+
+void Solver::processGivenDefinitions(std::unordered_map<int, std::tuple<std::vector<Clause>, Circuit>>& definitions) {
+  if (definitions.empty()) {
+    return;
+  }
+  std::unordered_set<int> variables_in_matrix (existential_variables.begin(), existential_variables.end());
+  variables_in_matrix.insert(universal_variables.begin(), universal_variables.end());
+  for(auto& [variable, def] : definitions){
+    auto [cnf_definition, circuit_definition] = def;
+    undefined_variables.erase(variable);
+    std::set<int> support_set;
+    for (const auto& clause: cnf_definition) {
+      for (int lit : clause) {
+        if (variables_in_matrix.find(abs(lit))!=variables_in_matrix.end()) {
+          support_set.insert(abs(lit));
+        }
+      }
+    }
+    support_set.erase(variable);
+    std::set<int> updates;
+    dependencies.scheduleUpdate(variable,support_set,updates);
+    dependencies.addInnermostExistential(variable);
+    std::vector<int> conflict;
+    addDefinition(variable, cnf_definition, circuit_definition, conflict, false);
   }
   dependencies.performUpdate();
 }
@@ -501,7 +547,8 @@ void Solver::printStatistics() {
   if (existential_variables.size()>0) {
     std::cerr << "Average number of learned default clauses: " <<  double(nof_learnt_default_clauses) / double(existential_variables.size()) << std::endl;
   }
-  int min_nof_clauses = INT_MAX, max_nof_clauses = 0;
+  int min_nof_clauses = nof_learnt_default_clauses_per_variable.empty() ? 0 : INT_MAX;
+  int max_nof_clauses = 0;
   for (auto& [var, nof_clauses] : nof_learnt_default_clauses_per_variable) {
     min_nof_clauses = nof_clauses < min_nof_clauses ? nof_clauses : min_nof_clauses;
     max_nof_clauses = nof_clauses > max_nof_clauses ? nof_clauses : max_nof_clauses;

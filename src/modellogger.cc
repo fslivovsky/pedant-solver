@@ -94,14 +94,10 @@ void ModelLogger::writeModelAsCNFToFile(const std::string& file_name,const std::
 
 void ModelLogger::writeModelAsAIGToFile(const std::string& file_name,const std::vector<int>& arbiter_assignment, bool binary_AIGER) {
   AIGERBuilder aiger_generator(indices,max_variable_in_matrix,existential_variables,universal_variables);
-  std::vector<int> arbs(arbiter_assignment);
-  std::sort(arbs.begin(),arbs.end());
+  // std::vector<int> arbs(arbiter_assignment);
+  // std::sort(arbs.begin(),arbs.end());
   auto default_clause_map = default_values.getCertificate();
-  if (config.restrictModel) {
-    aiger_generator.writeToFile(file_name,binary_AIGER, config.restrictModelTo, definitions_circuit,conditions,conditional_definitions_circuit,positive_forcing_clauses,negative_forcing_clauses,default_clause_map, arbs);
-  } else {
-    aiger_generator.writeToFile(file_name,binary_AIGER, definitions_circuit,conditions,conditional_definitions_circuit,positive_forcing_clauses,negative_forcing_clauses,default_clause_map, arbs);
-  }
+  aiger_generator.writeToFile(file_name,binary_AIGER, definitions_circuit,conditions,conditional_definitions_circuit,positive_forcing_clauses,negative_forcing_clauses,default_clause_map, arbiter_assignment);
   
 }
 

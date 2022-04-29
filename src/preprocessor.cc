@@ -40,10 +40,10 @@ int Preprocessor::applyForallReduction(Clause& clause, const std::unordered_set<
 
 InputFormula Preprocessor::preprocess() {
   InputFormula result;
-  if (config.ignore_innnermost_existentials && !formula.lastBlockType()) {
+  if (config.ignore_innermost_existentials && !formula.lastBlockType()) {
     //formula.getExistentialBlocks().size()-2 the start index of the last block
-    result.start_index_innnermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-2];
-    result.end_index_innnermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-1];
+    result.start_index_innermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-2];
+    result.end_index_innermost_existentials = formula.getExistentialBlocks()[formula.getExistentialBlocks().size()-1];
     result.innermost_existential_block_present = true;
   }
 
@@ -51,7 +51,7 @@ InputFormula Preprocessor::preprocess() {
     auto [deps, extended_deps] = dependencies.getExtendedDependencies();
     result.dependencies = std::move(deps);
     result.extended_dependenices = std::move(extended_deps);
-    std::sort(formula.getExistentials().begin() + result.start_index_innnermost_existentials, formula.getExistentials().begin() + result.end_index_innnermost_existentials);
+    std::sort(formula.getExistentials().begin() + result.start_index_innermost_existentials, formula.getExistentials().begin() + result.end_index_innermost_existentials);
   } else {
     auto deps = dependencies.getDependencies();
     result.dependencies = deps;
@@ -63,16 +63,21 @@ InputFormula Preprocessor::preprocess() {
   result.universal_variables = std::move(formula.getUniversals());
   result.existential_variables = std::move(formula.getExistentials());
 
+  size_t start_index_explicit_dependencies = result.existential_variables.size();
   for (const auto& [var, deps] : formula.getExplicitDependencies()) {
     result.existential_variables.push_back(var);
   }
+  // It is not really necessary to sort these variables but we want to ensure that they have some fixed ordering
+  std::sort(result.existential_variables.begin() + start_index_explicit_dependencies, result.existential_variables.end());
+
+  result.definitions = formula.getDefinitionMap();
 
   if (config.apply_forall_reduction) {
     std::unordered_set<int> universal_set (result.universal_variables.begin(), result.universal_variables.end());
     std::unordered_set<int> innermost_existentials;
-    if (config.ignore_innnermost_existentials && !formula.lastBlockType()) {
-      innermost_existentials.insert(result.existential_variables.begin() + result.start_index_innnermost_existentials,
-                                    result.existential_variables.begin() + result.end_index_innnermost_existentials);
+    if (config.ignore_innermost_existentials && !formula.lastBlockType()) {
+      innermost_existentials.insert(result.existential_variables.begin() + result.start_index_innermost_existentials,
+                                    result.existential_variables.begin() + result.end_index_innermost_existentials);
     } 
     std::unordered_map<int, std::unordered_set<int>> dependency_map_set;
     for (auto& [variable, dependencies] : result.dependencies) {
@@ -82,6 +87,8 @@ InputFormula Preprocessor::preprocess() {
       applyForallReduction(clause, universal_set, innermost_existentials,  dependency_map_set);
     }
   }
+  
+  result.setMaxVariable();
   return result;
 }
 

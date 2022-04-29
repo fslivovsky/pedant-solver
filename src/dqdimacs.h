@@ -20,6 +20,7 @@ class DQDIMACS {
   void addUniversalBlock(const std::vector<int>& universal_block);
   void addExistentialBlock(const std::vector<int>& existential_block);
   void addExplicitDependencies(int var, const std::vector<int>& dependencies);
+  void addDefinition(int var, std::vector<std::vector<int>>& definition_clauses, std::vector<std::tuple<std::vector<int>,int>>& definition_circuit);
 
   int getMaxVar() const;
   bool firstBlockType() const;
@@ -41,6 +42,12 @@ class DQDIMACS {
 
   std::unordered_map<int, std::vector<int>>& getExplicitDependencies();
 
+  bool isDefined(int var) const;
+  std::tuple<std::vector<std::vector<int>>, std::vector<std::tuple<std::vector<int>,int>>> getDefinition(int var);
+  std::unordered_map<int, std::tuple<std::vector<std::vector<int>>, std::vector<std::tuple<std::vector<int>,int>>>>& getDefinitionMap();
+
+
+
  private:
   int max_var;
   bool check_max_var;
@@ -52,6 +59,8 @@ class DQDIMACS {
   std::vector<int> existential_blocks;
 
   std::unordered_map<int,std::vector<int>> explicit_dependencies;
+
+  std::unordered_map<int, std::tuple<std::vector<std::vector<int>>, std::vector<std::tuple<std::vector<int>,int>>>> definitions;
   
 
 };

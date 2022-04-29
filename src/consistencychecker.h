@@ -16,6 +16,7 @@
 #include "configuration.h"
 #include "supporttracker.h"
 #include "dependencycontainer.h"
+#include "solverdata.h"
 
 namespace pedant {
 
@@ -34,7 +35,7 @@ struct VariableData {
 class ConsistencyChecker {
  public:
   ConsistencyChecker(const DependencyContainer& dependencies, const std::vector<int>& existential_variables, 
-      const std::vector<int>& universal_variables, int& last_used_variable, const Configuration& config);
+      const std::vector<int>& universal_variables, int& last_used_variable, SolverData& shared_data, const Configuration& config);
   bool checkConsistency(const std::vector<int>& arbiter_assumptions, std::vector<int>& existential_counterexample, std::vector<int>& universal_counterexample, 
       std::vector<int>& arbiter_counterexample, std::vector<int>& complete_universal_counterexample);
   void addArbiterVariable(int existential_variable, int arbiter_variable);
@@ -71,7 +72,8 @@ class ConsistencyChecker {
   // const std::unordered_map<int, std::set<int>>& extended_dependency_map;
   std::unordered_map<int, int> literal_variable_to_variable;
   std::unordered_map<int, int> literal_variable_to_literal;
-  std::unordered_map<int, int> arbiter_to_existential_variable;
+  SolverData& shared_data;
+  // std::unordered_map<int, int> arbiter_to_existential_variable;
   std::unordered_map<int,int> default_fires;
 
 
@@ -86,7 +88,7 @@ class ConsistencyChecker {
 // Implementation of inline methods.
 
 inline void ConsistencyChecker::addArbiterVariable(int existential_variable, int arbiter_variable) {
-  arbiter_to_existential_variable[arbiter_variable] = existential_variable;
+  // arbiter_to_existential_variable[arbiter_variable] = existential_variable;
   supporttracker.addArbiterVariable(arbiter_variable);
 }
 

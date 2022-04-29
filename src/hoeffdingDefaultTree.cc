@@ -16,10 +16,10 @@ mlpack::data::DatasetInfo getDatasetInfo(int size) {
 }
 
 HoeffdingDefaultTree::HoeffdingDefaultTree(int variable, 
-    const DependencyContainer& dependency_container,
+    const std::vector<int>& sample_space,
     std::vector<int>& assumptions, std::vector<int>& default_assumptions, int& last_used_variable, const Configuration& config) :
     variable(variable), assumptions(assumptions), default_assumptions(default_assumptions), 
-    dependencies(dependency_container.getDependencies(variable)), //TODO: check: what happens if extended deps shall be used fpor learning
+    dependencies(sample_space),
     last_used_variable(last_used_variable), config(config), htree(getDatasetInfo(dependencies.size()), 2) {
   std::sort(dependencies.begin(),dependencies.end());
   if (config.use_max_number) {
@@ -29,13 +29,13 @@ HoeffdingDefaultTree::HoeffdingDefaultTree(int variable,
   htree.CheckInterval(config.check_intervall);
 }
 
-std::vector<Clause> HoeffdingDefaultTree::insertConflict(int forced_literal, const std::vector<int>& universal_assignment) {
+std::vector<Clause> HoeffdingDefaultTree::insertConflict(int forced_literal, const std::vector<int>& counterexample_sample) {
   total_number_of_samples++;
   std::vector<int> reduced_assm;
   reduced_assm.reserve(dependencies.size());
-  for (int u:universal_assignment) {
-    if (std::binary_search(dependencies.begin(),dependencies.end(), abs(u))) {
-      reduced_assm.push_back(u);
+  for (auto lit : counterexample_sample) {
+    if (std::binary_search(dependencies.begin(),dependencies.end(), abs(lit))) {
+      reduced_assm.push_back(lit);
     }
   }
   std::sort(reduced_assm.begin(), reduced_assm.end(), [](int i, int j) { return abs(i) < abs(j); });
