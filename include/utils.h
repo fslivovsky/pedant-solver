@@ -10,6 +10,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
 
 #include "solvertypes.h"
 
@@ -255,7 +256,7 @@ template<class T> std::vector<int> restrictTo(const std::vector<int>& literals, 
 
 
 inline std::vector<int> getSupport(const Clause& conflict, const std::vector<Clause>& definition) {
-  std::unordered_set<int> support;
+  std::set<int> support;
   for (auto l: conflict) {
     support.insert(var(l));
   }

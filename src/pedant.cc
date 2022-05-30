@@ -26,7 +26,7 @@
 
 static constexpr int VERSION_MAJOR = 2;
 static constexpr int VERSION_MINOR = 1;
-static constexpr int VERSION_PATCH = 0;
+static constexpr int VERSION_PATCH = 1;
 
 
 static const char USAGE[] =
