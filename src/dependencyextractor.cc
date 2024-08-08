@@ -110,19 +110,22 @@ std::unordered_map<int, std::vector<int>> DependencyExtractor::computeExtendedDe
 void DependencyExtractor::checkImplicitdependencies(int var, std::unordered_map<int, std::vector<int>>& extended_dependencies) {
   const auto& var_deps = original_dependency_map.at(var);
   int msub_idx = getMaximalSubSet(var, 0, existential_block_idx_end);
+  const auto& existential_blocks = formula.getExistentialBlocks();
+  int max_subset_representative_idx = existential_blocks[msub_idx];
+  int min_superset_representative = 0;
   int msup_start = 0;
   if (msub_idx != -1) {
-    int v = formula.getExistentials()[msub_idx];
-    const auto& deps = original_dependency_map.at(v);
-    if (var_deps.size() == deps.size()) {//same dependencies
+    const auto& eblocks = formula.getExistentialBlocks();
+    const auto& evars = formula.getExistentials();
+    int representative = evars[eblocks[msub_idx]];
+    const auto& deps = original_dependency_map.at(representative);
+    if (var_deps.size() == deps.size()) {// dependencies included + same size -> same dependencies
       if (msub_idx != 0) {
         addImplicitToExplicit(var, msub_idx-1, extended_dependencies);
       } 
       if (msub_idx != formula.getExistentials().size() - 1) {
         addExplicitToImplicit(var, msub_idx+1, extended_dependencies);
       }
-      const auto& eblocks = formula.getExistentialBlocks();
-      const auto& evars = formula.getExistentials();
       auto it = std::lower_bound(evars.begin() + eblocks[msub_idx], evars.begin() + eblocks[msub_idx + 1], var);
       extended_dependencies.at(var).insert(extended_dependencies.at(var).end(), evars.begin() + eblocks[msub_idx], it);
       for (auto eit = it; eit != evars.begin() + eblocks[msub_idx + 1]; eit++) {
@@ -174,15 +177,17 @@ int DependencyExtractor::getMinimalSuperSet(int var, int start_index, int end_in
 }
 
 void DependencyExtractor::addExplicitToImplicit(int var, int idx, std::unordered_map<int, std::vector<int>>& extended_dependencies) {
+  int start_idx = formula.getExistentialBlocks()[idx];
   const auto& existential_variables = formula.getExistentials();
-  for (auto it = existential_variables.begin()+idx; it!=existential_variables.end();it++) {
+  for (auto it = existential_variables.begin()+start_idx; it!=existential_variables.end();it++) {
     extended_dependencies.at(*it).push_back(var);
   }
 }
 
 void DependencyExtractor::addImplicitToExplicit(int var, int idx, std::unordered_map<int, std::vector<int>>& extended_dependencies) {
+  int stop_idx = formula.getExistentialBlocks()[idx + 1];
   const auto& existential_variables = formula.getExistentials();
-  extended_dependencies.at(var).insert(extended_dependencies.at(var).end(), existential_variables.begin(), existential_variables.begin() + idx);
+  extended_dependencies.at(var).insert(extended_dependencies.at(var).end(), existential_variables.begin(), existential_variables.begin() + stop_idx);
 }
 
 void DependencyExtractor::checkExplicitDependencies(int var, const std::vector<int>& processed, std::unordered_map<int, std::vector<int>>& extended_dependencies) {
@@ -293,7 +298,7 @@ std::unordered_map<int, std::vector<int>> DependencyExtractor::applyDependencySc
   std::unordered_map<int, std::vector<int>> inverse_dependency_map = computeInverseDependencies();
   std::unordered_map<int, std::vector<int>> containing_clauses = getContainingClauses();
   /*
-    The subsequent vectors are not particularry efficient in terms of memory usage.
+    The subsequent vectors are not particulary efficient in terms of memory usage.
     If the variables in the given PCNF do not have consecutive "names" starting with 0,
     the vectors will contain unused entries.
     Moreover, effectively we only have to consider the existential variables, thus the entries that

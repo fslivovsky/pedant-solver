@@ -39,6 +39,7 @@ General Options:
   --verbose=int                 Only has an effect in debug builds [default: 3]
 Solver Options:
   --rrs=bool                    Eliminiate dependencies with the RRS dependency scheme [default: true]
+  --forall-reduction=bool       Apply forall reduction [default: true]
   --extended-dependencies=bool  Use extended dependencies [default: true]
   --dynamic-dependencies=bool   If all variables in the representation of a skolemfunction for e1
                                 occur in the extended dependencies of e2 then e2 may use e1 [default: true]
@@ -156,6 +157,7 @@ bool checkArguments(std::map<std::string, docopt::value>& args) {
   vector<unique_ptr<ArgumentConstraint>> argument_constraints;
 
   argument_constraints.push_back(make_unique<BoolConstraint>("--rrs"));
+  argument_constraints.push_back(make_unique<BoolConstraint>("--forall-reduction"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--extended-dependencies"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--dynamic-dependencies"));
   argument_constraints.push_back(make_unique<BoolConstraint>("--unates"));
@@ -252,6 +254,7 @@ Configuration setConfigurations(std::map<std::string, docopt::value>& args) {
 
 
   config.apply_dependency_schemes = isTrue(args["--rrs"].asString());
+  config.apply_forall_reduction = isTrue(args["--forall-reduction"].asString());
   config.extended_dependencies = isTrue(args["--extended-dependencies"].asString());
   config.dynamic_dependencies = isTrue(args["--dynamic-dependencies"].asString());
   config.always_add_arbiter_clause = isTrue(args["--always-add-arbiter"].asString());

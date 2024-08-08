@@ -67,6 +67,7 @@ class DependencyContainer_Vector : public BaseDependencyContainer {
   std::vector<int> restrictToExtendedDendenciesSorted(const std::vector<int>& literals, int var) const;
 
   bool isUndefined(int var) const;
+  size_t getNofUndefined() const;
 
  private:
   std::set<int> computeDynamicDependencies(int var) const;

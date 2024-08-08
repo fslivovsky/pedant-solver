@@ -309,5 +309,9 @@ bool DependencyContainer_Vector::isUndefined(int var) const {
   return undefined_variables.find(var) != undefined_variables.end();
 }
 
+size_t DependencyContainer_Vector::getNofUndefined() const {
+  return undefined_variables.size();
+}
+
 
 }

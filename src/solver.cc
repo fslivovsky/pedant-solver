@@ -254,7 +254,7 @@ template<typename T> void Solver::checkDefined(T variables_to_check, const std::
     queue = new_queue;
     dependencies.performUpdate();
   }
-  std::cerr << found_defined.size() << "/" << variables_to_check.size() << " found defined with conflict limit " << conflict_limit << " in " << i << " iterations." << std::endl;
+  std::cerr << found_defined.size() << "/" << dependencies.getNofUndefined() << " found defined with conflict limit " << conflict_limit << " in " << i << " iterations." << std::endl;
 }
 
 std::vector<Clause> Solver::getDefinition(int variable, const std::vector<int>& dependencies, std::vector<int>& conflict) {
